@@ -1,6 +1,7 @@
 #ifndef NBODYSIMULATOR_H
 #define NBODYSIMULATOR_H
 
+#include <string>
 #include <vector>
 #include "Particle.h"
 
@@ -33,6 +34,16 @@ public:
     const std::vector<Particle>& getParticles() const; 
     // Calcula la energía cinética y potencial del sistema
     void calculateEnergy(double& kinetic, double& potential);
+
+    // Exporta el estado actual del sistema a un archivo .dat
+    bool exportState(const std::string& filePath) const;
+
+    // Inicializa el sistema con valores aleatorios reproducibles
+    void initializeRandom(int numParticles,
+                          unsigned int seed,
+                          double posMin, double posMax,
+                          double velMin, double velMax,
+                          double massMin, double massMax);
 };
 
 #endif

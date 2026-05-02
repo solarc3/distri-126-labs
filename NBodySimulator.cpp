@@ -1,6 +1,8 @@
 #include "NBodySimulator.h"
 #include "Integrator.h"
 #include <cmath>
+#include <fstream>
+#include <random>
 #include <omp.h>
 
 NBodySimulator::NBodySimulator(double g_const, double eps)
@@ -36,21 +38,20 @@ void NBodySimulator::computeAccelerations() {
         for (int j = 0; j < n; ++j) {
             if (i == j) continue;
 
-            double dx = particles[j].x - particles[i].x;
-            double dy = particles[j].y - particles[i].y;
+            double dx = particles[j].getX() - particles[i].getX();
+            double dy = particles[j].getY() - particles[i].getY();
             
             double distSq = dx * dx + dy * dy;
             double distSoftened = std::sqrt(distSq + epsilon * epsilon);
             double denominator = distSoftened * distSoftened * distSoftened;
             
-            double a_mag = (G * particles[j].mass) / denominator;
+            double a_mag = (G * particles[j].getMass()) / denominator;
 
             // ¡OJO AQUÍ! ¿Hay condición de carrera? 
             // NO, porque el bucle externo paralelo es sobre 'i'.
             // Un hilo modifica particles[1], otro particles[2], etc. 
             // Nunca dos hilos escriben en la MISMA partícula a la vez.
-            particles[i].ax += a_mag * dx;
-            particles[i].ay += a_mag * dy;
+            particles[i].addAcceleration(a_mag * dx, a_mag * dy);
         }
     }
 }
@@ -79,8 +80,10 @@ void NBodySimulator::calculateEnergy(double& kinetic, double& potential) {
     // Usamos reduction(+:kinetic) para evitar condiciones de carrera al sumar
     #pragma omp parallel for reduction(+:kinetic)
     for (int i = 0; i < n; ++i) {
-        double v2 = particles[i].vx * particles[i].vx + particles[i].vy * particles[i].vy;
-        kinetic += 0.5 * particles[i].mass * v2;
+        double vx = particles[i].getVx();
+        double vy = particles[i].getVy();
+        double v2 = vx * vx + vy * vy;
+        kinetic += 0.5 * particles[i].getMass() * v2;
     }
 
     // 2. Energía Potencial Gravitatoria: Suma de (-G * m1 * m2 / r)
@@ -89,13 +92,48 @@ void NBodySimulator::calculateEnergy(double& kinetic, double& potential) {
     for (int i = 0; i < n; ++i) {
         // OJO: j = i + 1. Solo calculamos pares únicos para no duplicar la energía
         for (int j = i + 1; j < n; ++j) { 
-            double dx = particles[j].x - particles[i].x;
-            double dy = particles[j].y - particles[i].y;
+            double dx = particles[j].getX() - particles[i].getX();
+            double dy = particles[j].getY() - particles[i].getY();
             double distSq = dx * dx + dy * dy;
             double dist = std::sqrt(distSq + epsilon * epsilon); // Evita /0
             
-            potential -= (G * particles[i].mass * particles[j].mass) / dist;
+            potential -= (G * particles[i].getMass() * particles[j].getMass()) / dist;
         }
+    }
+}
+
+bool NBodySimulator::exportState(const std::string& filePath) const {
+    std::ofstream out(filePath);
+    if (!out.is_open()) {
+        return false;
+    }
+
+    for (const auto& p : particles) {
+        p.writeToStream(out);
+        out << '\n';
+    }
+
+    return true;
+}
+
+void NBodySimulator::initializeRandom(int numParticles,
+                                      unsigned int seed,
+                                      double posMin, double posMax,
+                                      double velMin, double velMax,
+                                      double massMin, double massMax) {
+    particles.clear();
+    particles.reserve(numParticles);
+
+    std::mt19937 gen(seed);
+    std::uniform_real_distribution<double> pos_dist(posMin, posMax);
+    std::uniform_real_distribution<double> vel_dist(velMin, velMax);
+    std::uniform_real_distribution<double> mass_dist(massMin, massMax);
+
+    for (int i = 0; i < numParticles; ++i) {
+        particles.emplace_back(
+            pos_dist(gen), pos_dist(gen),
+            vel_dist(gen), vel_dist(gen),
+            mass_dist(gen));
     }
 }
 
