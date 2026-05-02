@@ -5,7 +5,7 @@
 #include <omp.h>
 #include <fstream>
 #include <vector>
-#include <string>
+#include <random>
 #include "NBodySimulator.h"
 #include "Benchmark.h"
 #include "MetricsCalculator.h"
