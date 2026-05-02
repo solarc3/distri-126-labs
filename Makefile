@@ -2,7 +2,7 @@ CXX = g++
 CXXFLAGS = -Wall -Wextra -O3 -fopenmp -std=c++14
 
 TARGET = nbody_sim
-SRCS = main.cpp Particle.cpp NBodySimulator.cpp
+SRCS = main.cpp Particle.cpp NBodySimulator.cpp Integrator.cpp
 OBJS = $(SRCS:.cpp=.o)
 
 all: $(TARGET)
