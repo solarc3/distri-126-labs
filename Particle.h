@@ -1,27 +1,18 @@
 #ifndef PARTICLE_H
 #define PARTICLE_H
-class Particle{
-    private:
-        double mass;
-        double x,y,vx,vy,ax,ay;
 
-    public:
-        Particle(double m, double x0, double y0, double vx0 = 0, double vy0 = 0);
-        void setAcceleration(double ax0, double ay0);
-        void addAcceleration(double dax, double day);
-        void resetAcceleration();
+class Particle {
+public:
+    double x, y;       // Posición en 2D
+    double vx, vy;     // Velocidad
+    double ax, ay;     // Aceleración (se acumula en cada paso)
+    double mass;       // Masa de la partícula
 
-        void kick(double dt);
-        void drift(double dt);
+    // Constructor
+    Particle(double start_x, double start_y, double start_vx, double start_vy, double m);
 
-        double getMass() const;
-        double getX() const;
-        double getY() const;
-        double getVx() const;
-        double getVy() const;
-        double getAx() const;
-        double getAy() const;
-
+    // Método para limpiar la aceleración en cada nuevo paso de tiempo
+    void resetAcceleration();
 };
 
 #endif

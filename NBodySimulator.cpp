@@ -1,0 +1,99 @@
+#include "NBodySimulator.h"
+#include <cmath>
+#include <omp.h>
+
+NBodySimulator::NBodySimulator(double g_const, double eps)
+    : G(g_const), epsilon(eps) {}
+
+void NBodySimulator::addParticle(const Particle& p) {
+    particles.push_back(p);
+}
+
+int NBodySimulator::getNumParticles() const {
+    return particles.size();
+}
+
+const std::vector<Particle>& NBodySimulator::getParticles() const {
+    return particles;
+}
+
+void NBodySimulator::computeAccelerations() {
+    int n = particles.size();
+    
+    // 1. Reiniciamos aceleraciones (también se puede paralelizar)
+    #pragma omp parallel for schedule(static)
+    for (int i = 0; i < n; ++i) {
+        particles[i].resetAcceleration();
+    }
+
+    // 2. Cálculo de fuerzas O(N^2) paralelizado
+    // Usamos schedule(dynamic) por defecto, pero esto es lo que luego
+    // cambiarás para hacer los benchmarks que pide el laboratorio.
+    #pragma omp parallel for schedule(dynamic)
+    for (int i = 0; i < n; ++i) {
+        // Cada hilo toma una partícula 'i' y calcula la fuerza que ejercen TODAS las demás 'j'
+        for (int j = 0; j < n; ++j) {
+            if (i == j) continue;
+
+            double dx = particles[j].x - particles[i].x;
+            double dy = particles[j].y - particles[i].y;
+            
+            double distSq = dx * dx + dy * dy;
+            double distSoftened = std::sqrt(distSq + epsilon * epsilon);
+            double denominator = distSoftened * distSoftened * distSoftened;
+            
+            double a_mag = (G * particles[j].mass) / denominator;
+
+            // ¡OJO AQUÍ! ¿Hay condición de carrera? 
+            // NO, porque el bucle externo paralelo es sobre 'i'.
+            // Un hilo modifica particles[1], otro particles[2], etc. 
+            // Nunca dos hilos escriben en la MISMA partícula a la vez.
+            particles[i].ax += a_mag * dx;
+            particles[i].ay += a_mag * dy;
+        }
+    }
+}
+
+// Integrador de Euler (Actualización de posición y velocidad)
+void NBodySimulator::integrate(double dt) {
+    int n = particles.size();
+    for (int i = 0; i < n; ++i) {
+        // Actualizamos velocidades: v = v + a*dt
+        particles[i].vx += particles[i].ax * dt;
+        particles[i].vy += particles[i].ay * dt;
+        
+        // Actualizamos posiciones: x = x + v*dt
+        particles[i].x += particles[i].vx * dt;
+        particles[i].y += particles[i].vy * dt;
+    }
+}
+
+void NBodySimulator::calculateEnergy(double& kinetic, double& potential) {
+    kinetic = 0.0;
+    potential = 0.0;
+    int n = particles.size();
+
+    // 1. Energía Cinética: Suma de (1/2 * m * v^2)
+    // Usamos reduction(+:kinetic) para evitar condiciones de carrera al sumar
+    #pragma omp parallel for reduction(+:kinetic)
+    for (int i = 0; i < n; ++i) {
+        double v2 = particles[i].vx * particles[i].vx + particles[i].vy * particles[i].vy;
+        kinetic += 0.5 * particles[i].mass * v2;
+    }
+
+    // 2. Energía Potencial Gravitatoria: Suma de (-G * m1 * m2 / r)
+    // Usamos schedule(dynamic) y reduction(+:potential)
+    #pragma omp parallel for schedule(dynamic) reduction(+:potential)
+    for (int i = 0; i < n; ++i) {
+        // OJO: j = i + 1. Solo calculamos pares únicos para no duplicar la energía
+        for (int j = i + 1; j < n; ++j) { 
+            double dx = particles[j].x - particles[i].x;
+            double dy = particles[j].y - particles[i].y;
+            double distSq = dx * dx + dy * dy;
+            double dist = std::sqrt(distSq + epsilon * epsilon); // Evita /0
+            
+            potential -= (G * particles[i].mass * particles[j].mass) / dist;
+        }
+    }
+}
+
