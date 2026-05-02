@@ -136,4 +136,3 @@ void NBodySimulator::initializeRandom(int numParticles,
             mass_dist(gen));
     }
 }
-
