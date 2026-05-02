@@ -2,27 +2,35 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# instalar dependencias 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     g++ \
     make \
     libomp-dev \
     libgtest-dev \
     cmake \
+    python3 \
+    python3-pip \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# compilar
-WORKDIR /usr/src/gtest
-RUN cmake CMakeLists.txt && make && cp lib/*.a /usr/lib
+RUN pip3 install --no-cache-dir numpy matplotlib
 
-WORKDIR /app
+RUN cd /usr/src/gtest \
+    && cmake CMakeLists.txt \
+    && make \
+    && cp lib/*.a /usr/lib \
+    && rm -rf /usr/src/gtest/*
 
-# copiar codigo fuente al contenedor
-COPY . .
+RUN useradd --create-home --shell /bin/bash appuser
+USER appuser
+WORKDIR /home/appuser/app
 
-# compilar
+COPY --chown=appuser:appuser Makefile .
+COPY --chown=appuser:appuser *.h *.cpp .
+COPY --chown=appuser:appuser tests/       tests/
+COPY --chown=appuser:appuser plot_performance.py .
+
 RUN make clean && make
 
-# ejecutar tests
 CMD ["make", "test"]

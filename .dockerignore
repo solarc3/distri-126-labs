@@ -1,0 +1,10 @@
+.git
+.gitignore
+.github
+Dockerfile
+.dockerignore
+*.o
+nbody_sim
+run_tests
+*.dat
+*.png
