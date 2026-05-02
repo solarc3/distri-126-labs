@@ -4,6 +4,8 @@
 #include <iosfwd>
 
 class Particle {
+    friend class Integrator;
+    
     private:
         double x, y;       // Posición en 2D
         double vx, vy;     // Velocidad
