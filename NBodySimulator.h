@@ -23,6 +23,9 @@ public:
     // Actualiza posiciones y velocidades usando el integrador de Euler
     void integrate(double dt); 
 
+    // Actualiza posiciones y velocidades usando el integrador de Euler (con pruebas de sincronizacion)
+    void integrateEuler(double dt, int sync_type);
+
     // Obtener número de partículas
     int getNumParticles() const;
     

@@ -1,4 +1,5 @@
 #include "NBodySimulator.h"
+#include "Integrator.h"
 #include <cmath>
 #include <omp.h>
 
@@ -56,16 +57,17 @@ void NBodySimulator::computeAccelerations() {
 
 // Integrador de Euler (Actualización de posición y velocidad)
 void NBodySimulator::integrate(double dt) {
-    int n = particles.size();
-    for (int i = 0; i < n; ++i) {
-        // Actualizamos velocidades: v = v + a*dt
-        particles[i].vx += particles[i].ax * dt;
-        particles[i].vy += particles[i].ay * dt;
-        
-        // Actualizamos posiciones: x = x + v*dt
-        particles[i].x += particles[i].vx * dt;
-        particles[i].y += particles[i].vy * dt;
-    }
+    Integrator::integrateEuler(particles, dt, SyncType::NORMAL);
+}
+
+void NBodySimulator::integrateEuler(double dt, int sync_type) {
+    SyncType type;
+    if (sync_type == 0) type = SyncType::ATOMIC;
+    else if (sync_type == 1) type = SyncType::CRITICAL;
+    else if (sync_type == 2) type = SyncType::NOWAIT;
+    else type = SyncType::NORMAL; 
+
+    Integrator::integrateEuler(particles, dt, type);
 }
 
 void NBodySimulator::calculateEnergy(double& kinetic, double& potential) {
