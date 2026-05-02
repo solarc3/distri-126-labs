@@ -1,0 +1,30 @@
+name: Simulador N-Cuerpos CI
+
+on:
+  push:
+    branches: [ "modeloYDatos", "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: checkout codigo
+      uses: actions/checkout@v3
+
+    - name: instalar dependencias 
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libomp-dev libgtest-dev cmake
+        cd /usr/src/gtest
+        sudo cmake CMakeLists.txt
+        sudo make
+        sudo cp lib/*.a /usr/lib
+
+    - name: compilar lab
+      run: make
+
+    - name: pruebas unitarias e integracion
+      run: make test

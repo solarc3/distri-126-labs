@@ -1,6 +1,7 @@
 #include <iostream>
 #include <iomanip>
-#include <random>
+#include <sstream>
+#include <string>
 #include <omp.h>
 #include <fstream>
 #include <vector>
@@ -15,17 +16,23 @@ int main(int argc, char* argv[]) {
     double dt = 0.01;        
     int steps = 100;         
     int num_particles = 2000; 
+    int output_every = 10;
 
+    unsigned int seed = 42;
     // Leer argumento para activar el Benchmark
     bool run_benchmark = false;
-    if (argc > 1 && std::string(argv[1]) == "--benchmark") {
-        run_benchmark = true;
+    if (argc > 1) {
+        if (std::string(argv[1]) == "--benchmark") {
+            run_benchmark = true;
+        } else {
+            seed = static_cast<unsigned int>(std::stoul(argv[1]));
+        }
     }
 
     // 1. Generar condiciones iniciales reproducibles y guardarlas
     // Esto es vital para que las ejecuciones del benchmark sean justas
     std::vector<Particle> initial_particles;
-    std::mt19937 gen(42); 
+    std::mt19937 gen(seed); 
     std::uniform_real_distribution<double> pos_dist(-10.0, 10.0);
     std::uniform_real_distribution<double> vel_dist(-1.0, 1.0);
     std::uniform_real_distribution<double> mass_dist(0.5, 2.0);
@@ -41,6 +48,7 @@ int main(int argc, char* argv[]) {
         // Ejecución: ./tu_programa
         // ==============================================================
         std::cout << "--- Modo Fisica (" << num_particles << " particulas) ---" << std::endl;
+        std::cout << "Semilla: " << seed << std::endl;
         
         NBodySimulator sim(G, epsilon);
         for (const auto& p : initial_particles) {
@@ -50,17 +58,20 @@ int main(int argc, char* argv[]) {
         std::ofstream metrics_file("physics_metrics.dat");
         metrics_file << "Step\tKinetic\tPotential\tTotal\tPx\tPy\tCMx\tCMy\tRMS_Radius\tMinDist\n";
 
+        double start = omp_get_wtime();
         for (int step = 0; step < steps; ++step) {
             sim.computeAccelerations();
             sim.integrate(dt);
 
-            // Extraer y guardar métricas cada 10 pasos para no saturar el disco
-            if (step % 10 == 0) {
+            // Exportar estado cada output_every pasos
+            if (step % output_every == 0) {
+                std::ostringstream name;
+                name << "state_" << std::setw(4) << std::setfill('0') << step << ".dat";
+                sim.exportState(name.str());
+                
                 double kin, pot;
                 sim.calculateEnergy(kin, pot);
                 
-                // NOTA: Asegúrate de que NBodySimulator tenga un getter como:
-                // const std::vector<Particle>& getParticles() const;
                 const auto& particles = sim.getParticles(); 
                 
                 auto P = MetricsCalculator::calculateTotalMomentum(particles);
@@ -77,7 +88,9 @@ int main(int argc, char* argv[]) {
             }
         }
         metrics_file.close();
-        std::cout << "\nMetricas guardadas exitosamente en 'physics_metrics.dat'" << std::endl;
+        double end = omp_get_wtime();
+        std::cout << "\nTiempo de ejecucion: " << (end - start) << " segundos" << std::endl;
+        std::cout << "Metricas guardadas exitosamente en 'physics_metrics.dat'" << std::endl;
 
     } else {
         // ==============================================================
