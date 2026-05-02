@@ -22,7 +22,7 @@ void NBodySimulator::computeAccelerations() {
     int n = particles.size();
     
     // 1. Reiniciamos aceleraciones (también se puede paralelizar)
-    #pragma omp parallel for schedule(static)
+    //#pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
         particles[i].resetAcceleration();
     }
