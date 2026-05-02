@@ -5,6 +5,8 @@
 
 class Particle {
     friend class Integrator;
+    friend class MetricsCalculator;
+    friend class NBodySimulator;
     
     private:
         double x, y;       // Posición en 2D
