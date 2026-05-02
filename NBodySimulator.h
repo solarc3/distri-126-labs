@@ -8,37 +8,41 @@
 class NBodySimulator {
 private:
     std::vector<Particle> particles;
-    double G;       // Constante gravitacional
-    double epsilon; // Factor de suavizado para evitar singularidades (e)
+    double G;
+    double epsilon;
 
 public:
-    // Constructor
     NBodySimulator(double g_const, double eps);
 
-    // Agrega una partícula al sistema
     void addParticle(const Particle& p);
 
-    // Calcula las fuerzas/aceleraciones (Aquí meteremos OpenMP en la Fase 2)
-    void computeAccelerations(); 
+    void computeAccelerations();
+    void computeAccelerations(int schedule_type);
+    void computeAccelerations(int schedule_type, int chunk_size);
+    void computeAccelerationsCollapse();
 
-    // Actualiza posiciones y velocidades usando el integrador de Euler
-    void integrate(double dt); 
+    void integrate(double dt);
 
-    // Actualiza posiciones y velocidades usando el integrador de Euler (con pruebas de sincronizacion)
     void integrateEuler(double dt, int sync_type);
+    void integrateEuler(double dt, int sync_type, bool use_barrier);
 
-    // Obtener número de partículas
     int getNumParticles() const;
-    
-    // (Opcional por ahora) Obtener referencia a las partículas para imprimirlas
-    const std::vector<Particle>& getParticles() const; 
-    // Calcula la energía cinética y potencial del sistema
+
+    const std::vector<Particle>& getParticles() const;
+
     void calculateEnergy(double& kinetic, double& potential);
+    void calculateEnergy(double& kinetic, double& potential, int method);
+    void calculateEnergy(double& kinetic, double& potential, int method, bool use_private);
 
-    // Exporta el estado actual del sistema a un archivo .dat
-    bool exportState(const std::string& filePath) const;
+    void processBodies();
+    void processBodies(int task_type);
+    void processBodies(int task_type, bool use_single);
 
-    // Inicializa el sistema con valores aleatorios reproducibles
+    void simulatePhasesBarrier();
+    void parallelInitializationSingle();
+    double calculateMetricsFirstprivate();
+    Particle calculateFinalStateLastprivate();
+
     void initializeRandom(int numParticles,
                           unsigned int seed,
                           double posMin, double posMax,
