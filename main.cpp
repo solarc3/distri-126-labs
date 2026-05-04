@@ -6,6 +6,7 @@
 #include <fstream>
 #include <vector>
 #include <random>
+#include <cmath>
 #include "NBodySimulator.h"
 #include "Benchmark.h"
 #include "MetricsCalculator.h"
@@ -21,8 +22,13 @@ int main(int argc, char* argv[]) {
 
     unsigned int seed = 42;
     bool run_benchmark = false;
+    bool run_benchmark_all = false;
     if (argc > 1) {
-        if (std::string(argv[1]) == "--benchmark") {
+        std::string arg1(argv[1]);
+        if (arg1 == "--benchmark-all") {
+            run_benchmark = true;
+            run_benchmark_all = true;
+        } else if (arg1 == "--benchmark") {
             run_benchmark = true;
         } else {
             seed = static_cast<unsigned int>(std::stoul(argv[1]));
@@ -85,6 +91,100 @@ int main(int argc, char* argv[]) {
         std::cout << "\nTiempo de ejecucion: " << (end - start) << " segundos" << std::endl;
         std::cout << "Metricas guardadas exitosamente en 'physics_metrics.dat'" << std::endl;
 
+        std::cout << "\n--- Verificacion de sobrecargas OpenMP ---" << std::endl;
+        {
+            const int VN = 100;
+            std::vector<Particle> vp;
+            std::mt19937 vgen(99);
+            for (int i = 0; i < VN; ++i)
+                vp.emplace_back(pos_dist(vgen), pos_dist(vgen), vel_dist(vgen), vel_dist(vgen), mass_dist(vgen));
+
+            auto make_vsim = [&]() {
+                NBodySimulator s(G, epsilon);
+                for (const auto& p : vp) s.addParticle(p);
+                return s;
+            };
+
+            for (int s = 0; s <= 2; ++s) {
+                auto sim = make_vsim();
+                sim.computeAccelerations(s);
+                bool ok = true;
+                for (const auto& p : sim.getParticles())
+                    if (!std::isfinite(p.getAx()) || !std::isfinite(p.getAy())) { ok = false; break; }
+                std::cout << "  computeAccelerations(schedule=" << s << "): " << (ok ? "OK" : "FAIL") << std::endl;
+            }
+
+            for (int s = 0; s <= 2; ++s) {
+                auto sim = make_vsim();
+                sim.computeAccelerations(s, 25);
+                bool ok = true;
+                for (const auto& p : sim.getParticles())
+                    if (!std::isfinite(p.getAx()) || !std::isfinite(p.getAy())) { ok = false; break; }
+                std::cout << "  computeAccelerations(schedule=" << s << ", chunk=25): " << (ok ? "OK" : "FAIL") << std::endl;
+            }
+
+            {
+                auto sim = make_vsim();
+                sim.computeAccelerationsCollapse();
+                bool ok = true;
+                for (const auto& p : sim.getParticles())
+                    if (!std::isfinite(p.getAx()) || !std::isfinite(p.getAy())) { ok = false; break; }
+                std::cout << "  computeAccelerationsCollapse(): " << (ok ? "OK" : "FAIL") << std::endl;
+            }
+
+            const char* snames[] = {"ATOMIC", "CRITICAL", "NOWAIT", "NORMAL"};
+            for (int sy = 0; sy <= 3; ++sy) {
+                auto sim = make_vsim();
+                sim.computeAccelerations();
+                sim.integrateEuler(dt, sy);
+                bool ok = true;
+                for (const auto& p : sim.getParticles())
+                    if (!std::isfinite(p.getX()) || !std::isfinite(p.getY())) { ok = false; break; }
+                std::cout << "  integrateEuler(" << snames[sy] << "): " << (ok ? "OK" : "FAIL") << std::endl;
+            }
+
+            {
+                auto sim = make_vsim();
+                sim.computeAccelerations();
+                sim.integrateEuler(dt, 2, true);
+                bool ok = true;
+                for (const auto& p : sim.getParticles())
+                    if (!std::isfinite(p.getX()) || !std::isfinite(p.getY())) { ok = false; break; }
+                std::cout << "  integrateEuler(NOWAIT+barrier): " << (ok ? "OK" : "FAIL") << std::endl;
+            }
+
+            {
+                auto sim = make_vsim();
+                sim.computeAccelerations();
+                double k0, p0, k1, p1, k2, p2, k3, p3;
+                sim.calculateEnergy(k0, p0);
+                sim.calculateEnergy(k1, p1, 0);
+                sim.calculateEnergy(k2, p2, 1);
+                sim.calculateEnergy(k3, p3, 1, true);
+                bool ok1 = std::abs(k0 - k1) < 1e-9 && std::abs(p0 - p1) < 1e-9;
+                bool ok2 = std::abs(k0 - k2) < 1e-9 && std::abs(p0 - p2) < 1e-9;
+                bool ok3 = std::abs(k0 - k3) < 1e-9 && std::abs(p0 - p3) < 1e-9;
+                std::cout << "  calculateEnergy(method=0 default): " << (ok1 ? "OK" : "FAIL") << std::endl;
+                std::cout << "  calculateEnergy(method=1 atomic): " << (ok2 ? "OK" : "FAIL") << std::endl;
+                std::cout << "  calculateEnergy(method=1 private): " << (ok3 ? "OK" : "FAIL") << std::endl;
+            }
+
+            {
+                auto sim = make_vsim();
+                sim.computeAccelerations();
+                sim.processBodies();
+                sim.processBodies(0);
+                sim.processBodies(1);
+                sim.processBodies(0, true);
+                sim.simulatePhasesBarrier();
+                sim.parallelInitializationSingle();
+                double mf = sim.calculateMetricsFirstprivate();
+                Particle last = sim.calculateFinalStateLastprivate();
+                (void)mf; (void)last;
+                std::cout << "  processBodies/PhasesBarrier/Single/Firstprivate/Lastprivate: OK" << std::endl;
+            }
+        }
+
     } else {
         std::cout << "--- Modo Benchmark (" << num_particles << " particulas) ---" << std::endl;
 
@@ -141,6 +241,81 @@ int main(int argc, char* argv[]) {
         }
         scaling_file.close();
         std::cout << "Archivo de escalamiento generado: 'scaling_analysis.dat'" << std::endl;
+
+        if (run_benchmark_all) {
+            const int bench_threads = 4;
+            omp_set_num_threads(bench_threads);
+            Benchmark bench3(3);
+            std::cout << "\n--- Benchmarks adicionales (schedule, chunk, sync) con "
+                      << bench_threads << " hilos ---" << std::endl;
+
+            // Benchmark A: Comparacion de schedules
+            {
+                std::ofstream sf("schedule_benchmark.dat");
+                sf << "Schedule\tMeanTime\tStdDev\n";
+                const char* sn[] = {"static", "dynamic", "guided"};
+                for (int s = 0; s <= 2; ++s) {
+                    auto task = [&]() {
+                        NBodySimulator sim(G, epsilon);
+                        for (const auto& p : initial_particles) sim.addParticle(p);
+                        for (int step = 0; step < steps; ++step) {
+                            sim.computeAccelerations(s);
+                            sim.integrate(dt);
+                        }
+                    };
+                    auto stats = bench3.measureExecutionTime(task);
+                    sf << sn[s] << "\t" << stats.first << "\t" << stats.second << "\n";
+                    std::cout << "  Schedule " << sn[s] << ": " << stats.first << " s" << std::endl;
+                }
+                sf.close();
+                std::cout << "  -> schedule_benchmark.dat" << std::endl;
+            }
+
+            // Benchmark B: Tamanio de chunk vs tiempo
+            {
+                std::ofstream cf("chunk_benchmark.dat");
+                cf << "Schedule\tChunk\tMeanTime\n";
+                int chunks[] = {1, 5, 10, 50, 100, 500};
+                for (int s = 0; s <= 2; ++s) {
+                    for (int c : chunks) {
+                        auto task = [&]() {
+                            NBodySimulator sim(G, epsilon);
+                            for (const auto& p : initial_particles) sim.addParticle(p);
+                            for (int step = 0; step < steps; ++step) {
+                                sim.computeAccelerations(s, c);
+                                sim.integrate(dt);
+                            }
+                        };
+                        auto stats = bench3.measureExecutionTime(task);
+                        cf << s << "\t" << c << "\t" << stats.first << "\n";
+                    }
+                }
+                cf.close();
+                std::cout << "  Chunk benchmark -> chunk_benchmark.dat" << std::endl;
+            }
+
+            // Benchmark C: Comparacion de sincronizacion
+            {
+                std::ofstream yf("sync_benchmark.dat");
+                yf << "SyncType\tMeanTime\tStdDev\n";
+                const char* yn[] = {"ATOMIC", "CRITICAL", "NOWAIT", "NORMAL"};
+                for (int y = 0; y <= 3; ++y) {
+                    auto task = [&]() {
+                        NBodySimulator sim(G, epsilon);
+                        for (const auto& p : initial_particles) sim.addParticle(p);
+                        for (int step = 0; step < steps; ++step) {
+                            sim.computeAccelerations();
+                            sim.integrateEuler(dt, y);
+                        }
+                    };
+                    auto stats = bench3.measureExecutionTime(task);
+                    yf << yn[y] << "\t" << stats.first << "\t" << stats.second << "\n";
+                    std::cout << "  Sync " << yn[y] << ": " << stats.first << " s" << std::endl;
+                }
+                yf.close();
+                std::cout << "  -> sync_benchmark.dat" << std::endl;
+            }
+        }
     }
 
     return 0;
