@@ -4,10 +4,11 @@
 
 | Miembro        | Rol / Contribucion                        |
 |----------------|-------------------------------------------|
-| **[Nombre]**   | Diseno e implementacion de la arquitectura OO, integrador de Euler |
-| **[Nombre]**   | Paralelizacion OpenMP, overloading de metodos, benchmarking |
-| **[Nombre]**   | Metricas fisicas, calculo de errores, pruebas automatizadas |
-| **[Nombre]**   | Visualizacion, graficos, documentacion, CI/Docker |
+| **[Nombre]**   | Modelo y datos |
+| **[Nombre]**   | Nucleo paralelo |
+| **[Nombre]**   | Integracion y fisica |
+| **[Nombre]**   | Metricas y benchmarks |
+| **[Nombre]**   | Calidad, CI y visualizacion |
 
 ## Decisiones de Diseno
 
@@ -31,6 +32,17 @@ El integrador sigue el esquema de **Euler simplectico** (tambien conocido como s
 2. Para cada particula, se actualiza primero la velocidad (`kick`: `v_i += a_i * dt`) y luego la posicion con la velocidad recien actualizada (`drift`: `r_i += v_i * dt`).
 
 Este orden (kick-drift en el mismo bucle) es **matematicamente equivalente** a hacer todos los kicks primero y todos los drifts despues, gracias a que la deriva de cada particula solo depende de su propia velocidad. La fusion de bucles es una optimizacion valida que no altera el resultado fisico. Ademas, el Euler simplectico tiene mejores propiedades de conservacion de energia que el Euler explicito tradicional.
+
+### Condiciones iniciales
+Los cuerpos se inicializan mediante distribuciones aleatorias uniformes con semilla fija (42):
+- **Posiciones**: distribucion uniforme en el rango `[-10.0, 10.0]` para ambas coordenadas `x` e `y`.
+- **Velocidades**: distribucion uniforme en el rango `[-1.0, 1.0]` para ambas componentes `vx` y `vy`.
+- **Masas**: distribucion uniforme en el rango `[0.5, 2.0]`.
+
+La semilla puede sobreescribirse pasando un entero como primer argumento (ej. `./nbody_sim 123`).
+
+### Unidades adimensionales
+Al fijar `G = 1.0`, se define un sistema adimensional coherente: todas las posiciones, tiempos y masas se expresan en unidades de simulacion relativas (u.s.). No hay conversion a unidades fisicas (kg, m, s). La suavizacion `epsilon = 0.1` y el paso `dt = 0.01` son consistentes con este sistema adimensional.
 
 ### Criterio de tolerancia en comparaciones de coma flotante
 - **Pruebas de fuerza analitica**: tolerancia de `1e-5` para verificar la formula general de aceleracion con epsilon de suavizado.
@@ -100,7 +112,7 @@ docker run --rm nbody-sim make test
 
 | Archivo | Descripcion |
 |---------|-------------|
-| `physics_metrics.dat` | Metricas fisicas (energia, momento, CM, RMS, min dist) por paso |
+| `energy_timeseries.dat` | Series temporales de energia (cinetica, potencial, total) y metricas fisicas por paso |
 | `state_XXXX.dat` | Instantaneas de posiciones/velocidades de todas las particulas |
 | `benchmark_results.dat` | Resultados del benchmark de escalabilidad (tiempos, speedup, eficiencia) |
 | `scaling_analysis.dat` | Datos de escalamiento con curva teorica de Amdahl |
