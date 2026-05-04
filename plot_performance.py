@@ -27,9 +27,9 @@ def load_chunk():
 
 def load_energy():
     try:
-        data = np.loadtxt('physics_metrics.dat', skiprows=1)
+        data = np.loadtxt('energy_timeseries.dat', skiprows=1)
     except OSError:
-        print("Aviso: 'physics_metrics.dat' no encontrado. Omitiendo grafico de energia.")
+        print("Aviso: 'energy_timeseries.dat' no encontrado. Omitiendo grafico de energia.")
         return None
     if data.ndim == 1:
         data = data.reshape(1, -1)

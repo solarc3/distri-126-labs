@@ -55,7 +55,7 @@ int main(int argc, char* argv[]) {
             sim.addParticle(p);
         }
 
-        std::ofstream metrics_file("physics_metrics.dat");
+        std::ofstream metrics_file("energy_timeseries.dat");
         metrics_file << "Step\tKinetic\tPotential\tTotal\tPx\tPy\tCMx\tCMy\tRMS_Radius\tMinDist\n";
 
         double start = omp_get_wtime();
@@ -89,7 +89,7 @@ int main(int argc, char* argv[]) {
         metrics_file.close();
         double end = omp_get_wtime();
         std::cout << "\nTiempo de ejecucion: " << (end - start) << " segundos" << std::endl;
-        std::cout << "Metricas guardadas exitosamente en 'physics_metrics.dat'" << std::endl;
+        std::cout << "Metricas guardadas exitosamente en 'energy_timeseries.dat'" << std::endl;
 
         std::cout << "\n--- Verificacion de sobrecargas OpenMP ---" << std::endl;
         {

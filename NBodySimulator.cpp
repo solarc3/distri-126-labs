@@ -21,29 +21,7 @@ const std::vector<Particle>& NBodySimulator::getParticles() const {
 }
 
 void NBodySimulator::computeAccelerations() {
-    int n = particles.size();
-
-    for (int i = 0; i < n; ++i) {
-        particles[i].resetAcceleration();
-    }
-
-    #pragma omp parallel for schedule(dynamic)
-    for (int i = 0; i < n; ++i) {
-        for (int j = 0; j < n; ++j) {
-            if (i == j) continue;
-
-            double dx = particles[j].x - particles[i].x;
-            double dy = particles[j].y - particles[i].y;
-
-            double distSq = dx * dx + dy * dy;
-            double distSoftened = std::sqrt(distSq + epsilon * epsilon);
-            double denominator = distSoftened * distSoftened * distSoftened;
-
-            double a_mag = (G * particles[j].mass) / denominator;
-
-            particles[i].addAcceleration(a_mag * dx, a_mag * dy);
-        }
-    }
+    computeAccelerations(1);
 }
 
 void NBodySimulator::computeAccelerations(int schedule_type) {
