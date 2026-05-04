@@ -17,9 +17,12 @@ $(TARGET): $(OBJS)
 benchmark: $(TARGET)
 	./$(TARGET) --benchmark
 
+benchmark-all: $(TARGET)
+	./$(TARGET) --benchmark-all
+
 analysis: $(TARGET)
-	@echo "Ejecutando benchmark para generar datos de escalamiento..."
-	./$(TARGET) --benchmark
+	@echo "Ejecutando benchmarks completos..."
+	./$(TARGET) --benchmark-all
 	@echo "Generando graficos de rendimiento..."
 	python3 plot_performance.py
 
