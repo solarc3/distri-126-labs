@@ -25,6 +25,13 @@ Se eligio `dt = 0.01` por las siguientes razones:
 2. Precision: paso suficientemente pequeno para que la aceleracion no varie significativamente entre pasos, garantizando validez del integrador Euler de primer orden.
 3. Costo computacional: permite 100 pasos en tiempos razonables incluso con 2000 particulas, facilitando la recoleccion de datos estadisticos.
 
+### Orden de integracion (Euler Simplectico)
+El integrador sigue el esquema de **Euler simplectico** (tambien conocido como semi-implicito):
+1. Se calculan todas las aceleraciones `a_i` (en `computeAccelerations()`).
+2. Para cada particula, se actualiza primero la velocidad (`kick`: `v_i += a_i * dt`) y luego la posicion con la velocidad recien actualizada (`drift`: `r_i += v_i * dt`).
+
+Este orden (kick-drift en el mismo bucle) es **matematicamente equivalente** a hacer todos los kicks primero y todos los drifts despues, gracias a que la deriva de cada particula solo depende de su propia velocidad. La fusion de bucles es una optimizacion valida que no altera el resultado fisico. Ademas, el Euler simplectico tiene mejores propiedades de conservacion de energia que el Euler explicito tradicional.
+
 ### Criterio de tolerancia en comparaciones de coma flotante
 - **Pruebas de fuerza analitica**: tolerancia de `1e-5` para verificar la formula general de aceleracion con epsilon de suavizado.
 - **Pruebas de momento y centro de masas**: tolerancia de `1e-9` para verificar valores analiticamente esperados (cero o valores exactos).
@@ -69,7 +76,8 @@ make clean && make
 ### Ejecucion
 ```bash
 ./nbody_sim                    # Modo fisica: exporta estados y metricas
-./nbody_sim --benchmark        # Modo benchmark: mide rendimiento
+./nbody_sim --benchmark        # Modo benchmark: mide escalabilidad (hilos)
+./nbody_sim --benchmark-all    # Modo benchmark completo: schedules, chunks, sync
 ```
 
 ### Pruebas Automatizadas
@@ -93,10 +101,13 @@ docker run --rm nbody-sim make test
 | Archivo | Descripcion |
 |---------|-------------|
 | `physics_metrics.dat` | Metricas fisicas (energia, momento, CM, RMS, min dist) por paso |
-| `state_XXXX.dat` | Instanteas de posiciones/velocidades de todas las particulas |
-| `benchmark_results.dat` | Resultados crudos del benchmark (tiempos, speedup, eficiencia) |
+| `state_XXXX.dat` | Instantaneas de posiciones/velocidades de todas las particulas |
+| `benchmark_results.dat` | Resultados del benchmark de escalabilidad (tiempos, speedup, eficiencia) |
 | `scaling_analysis.dat` | Datos de escalamiento con curva teorica de Amdahl |
-| `performance_plots.png` | Graficos: speedup, eficiencia, tiempo y curva Amdahl |
+| `schedule_benchmark.dat` | Comparacion de schedules (static, dynamic, guided) |
+| `chunk_benchmark.dat` | Tiempo vs tamanio de chunk para cada schedule |
+| `sync_benchmark.dat` | Comparacion de estrategias de sincronizacion (atomic, critical, nowait, normal) |
+| `performance_plots.png` | Graficos: speedup, eficiencia, tiempo, Amdahl, chunk, energia |
 
 ## Estructura del Proyecto
 
