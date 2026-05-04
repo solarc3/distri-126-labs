@@ -185,7 +185,10 @@ void NBodySimulator::computeAccelerationsCollapse() {
 
             double a_mag = (G * particles[j].mass) / denominator;
 
-            particles[i].addAcceleration(a_mag * dx, a_mag * dy);
+            #pragma omp atomic
+            particles[i].ax += a_mag * dx;
+            #pragma omp atomic
+            particles[i].ay += a_mag * dy;
         }
     }
 }
