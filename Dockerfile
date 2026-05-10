@@ -23,7 +23,6 @@ RUN cd /usr/src/gtest \
     && rm -rf /usr/src/gtest/*
 
 RUN useradd --create-home --shell /bin/bash appuser
-USER appuser
 WORKDIR /home/appuser/app
 
 COPY --chown=appuser:appuser Makefile ./
@@ -31,6 +30,7 @@ COPY --chown=appuser:appuser *.h *.cpp ./
 COPY --chown=appuser:appuser tests/       tests/
 COPY --chown=appuser:appuser plot_performance.py ./
 
+USER appuser
 RUN make clean && make
 
 CMD ["make", "test"]
