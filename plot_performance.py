@@ -48,7 +48,7 @@ def main():
     chunk_data = load_chunk()
     energy_data = load_energy()
 
-    fig, axes = plt.subplots(3, 2, figsize=(14, 18))
+    fig, axes = plt.subplots(4, 2, figsize=(14, 24))
     fig.suptitle('Analisis de Rendimiento - Simulador N-Body OpenMP', fontsize=16)
 
     # (1) Speedup vs Hilos
@@ -130,6 +130,24 @@ def main():
                  fontsize=14, color='gray')
         ax6.set_title('Conservacion de Energia (no disponible)')
     ax6.grid(True, alpha=0.3)
+
+    # (7) Magnitud del Momento Total vs Tiempo
+    ax7 = axes[3, 0]
+    if energy_data is not None:
+        steps = energy_data[:, 0].astype(int)
+        rms_radius = energy_data[:, 8] # El índice 8 es RMS_Radius según tu main.cpp
+        ax7.plot(steps, rms_radius, 'c-', linewidth=2)
+        ax7.set_xlabel('Paso de simulacion', fontsize=12)
+        ax7.set_ylabel('Radio RMS', fontsize=12)
+        ax7.set_title('Evolución del Estado Global (Expansión del Sistema)')
+    else:
+        ax7.text(0.5, 0.5, 'Datos no disponibles', ha='center', va='center',
+                 transform=ax7.transAxes, fontsize=14, color='gray')
+        ax7.set_title('Evolución del Estado Global (no disponible)')
+    ax7.grid(True, alpha=0.3)
+
+    # Ocultar el último subplot (axes[3, 1]) que quedará vacío
+    axes[3, 1].axis('off')
 
     plt.tight_layout()
     plt.savefig('performance_plots.png', dpi=150)

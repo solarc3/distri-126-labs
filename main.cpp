@@ -50,13 +50,15 @@ int main(int argc, char* argv[]) {
         std::cout << "--- Modo Fisica (" << num_particles << " particulas) ---" << std::endl;
         std::cout << "Semilla: " << seed << std::endl;
 
+        double t_serial_start = omp_get_wtime();
         NBodySimulator sim(G, epsilon);
         for (const auto& p : initial_particles) {
             sim.addParticle(p);
         }
+        double t_serial_end = omp_get_wtime();
 
         std::ofstream metrics_file("energy_timeseries.dat");
-        metrics_file << "Step\tKinetic\tPotential\tTotal\tPx\tPy\tCMx\tCMy\tRMS_Radius\tMinDist\n";
+        metrics_file << "Step\tKinetic\tPotential\tTotal\tPx\tPy\tCMx\tCMy\tRMS_Radius\tMinDist\tPMag\n";
 
         double start = omp_get_wtime();
         for (int step = 0; step < steps; ++step) {
@@ -74,22 +76,33 @@ int main(int argc, char* argv[]) {
                 const auto& particles = sim.getParticles();
 
                 auto P = MetricsCalculator::calculateTotalMomentum(particles);
+                double p_mag = std::sqrt(P.first * P.first + P.second * P.second); // Nueva magnitud
                 auto CM = MetricsCalculator::calculateCenterOfMass(particles);
                 double rms = MetricsCalculator::calculateRMSRadius(particles);
                 double min_dist = MetricsCalculator::calculateMinDistance(particles);
 
                 metrics_file << step << "\t" << kin << "\t" << pot << "\t" << (kin + pot) << "\t"
-                             << P.first << "\t" << P.second << "\t"
-                             << CM.first << "\t" << CM.second << "\t"
-                             << rms << "\t" << min_dist << "\n";
+                            << P.first << "\t" << P.second << "\t"
+                            << CM.first << "\t" << CM.second << "\t"
+                            << rms << "\t" << min_dist << "\t" << p_mag << "\n";
 
                 std::cout << "Paso " << step << " procesado y registrado..." << std::endl;
             }
         }
         metrics_file.close();
         double end = omp_get_wtime();
-        std::cout << "\nTiempo de ejecucion: " << (end - start) << " segundos" << std::endl;
-        std::cout << "Metricas guardadas exitosamente en 'energy_timeseries.dat'" << std::endl;
+        
+        std::cout << "\n--- INSTRUMENTACION EXPLICITA (Fraccion Serial Empirica) ---" << std::endl;
+        double t_serial = t_serial_end - t_serial_start;
+        double t_parallel = end - start;
+        double t_total = t_serial + t_parallel;
+        
+        std::cout << "Tiempo puramente serial (Inicializacion): " << t_serial << " s" << std::endl;
+        std::cout << "Tiempo paralelo (Bucle de fisica): " << t_parallel << " s" << std::endl;
+        std::cout << "Tiempo total: " << t_total << " s" << std::endl;
+        std::cout << "Fraccion serial medida: " << (t_serial / t_total) * 100.0 << " %" << std::endl;
+        
+        std::cout << "\nMetricas guardadas exitosamente en 'energy_timeseries.dat'" << std::endl;
 
         std::cout << "\n--- Verificacion de sobrecargas OpenMP ---" << std::endl;
         {
@@ -314,6 +327,52 @@ int main(int argc, char* argv[]) {
                 }
                 yf.close();
                 std::cout << "  -> sync_benchmark.dat" << std::endl;
+            }
+
+            // Benchmark D: Tareas vs Bucle Paralelo (Sincronización avanzada)
+            {
+                std::ofstream tf("task_benchmark.dat");
+                tf << "TaskType\tMeanTime\tStdDev\n";
+                const char* tn[] = {"Task", "ParallelFor"};
+                for (int t = 0; t <= 1; ++t) {
+                    auto task = [&]() {
+                        NBodySimulator sim(G, epsilon);
+                        for (const auto& p : initial_particles) sim.addParticle(p);
+                        for (int step = 0; step < steps; ++step) {
+                            sim.computeAccelerations();
+                            sim.processBodies(t); // 0 = task, 1 = parallel for
+                        }
+                    };
+                    auto stats = bench3.measureExecutionTime(task);
+                    tf << tn[t] << "\t" << stats.first << "\t" << stats.second << "\n";
+                    std::cout << "  Sync Avanzada " << tn[t] << ": " << stats.first << " s" << std::endl;
+                }
+                tf.close();
+                std::cout << "  -> task_benchmark.dat" << std::endl;
+            }
+
+            // Benchmark E: Memoria (private vs shared implícito en calculateEnergy)
+            {
+                std::ofstream mf("memory_benchmark.dat");
+                mf << "MemoryType\tMeanTime\tStdDev\n";
+                const char* mn[] = {"Shared_Atomic", "Private"};
+                for (int m = 0; m <= 1; ++m) {
+                    auto task = [&]() {
+                        NBodySimulator sim(G, epsilon);
+                        for (const auto& p : initial_particles) sim.addParticle(p);
+                        for (int step = 0; step < steps; ++step) {
+                            sim.computeAccelerations();
+                            double k, p_pot;
+                            // m=0 -> atomic (shared), m=1 -> variables privadas
+                            sim.calculateEnergy(k, p_pot, 1, m == 1); 
+                        }
+                    };
+                    auto stats = bench3.measureExecutionTime(task);
+                    mf << mn[m] << "\t" << stats.first << "\t" << stats.second << "\n";
+                    std::cout << "  Memoria " << mn[m] << ": " << stats.first << " s" << std::endl;
+                }
+                mf.close();
+                std::cout << "  -> memory_benchmark.dat" << std::endl;
             }
         }
     }
