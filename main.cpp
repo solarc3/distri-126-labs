@@ -7,6 +7,7 @@
 #include <vector>
 #include <random>
 #include <cmath>
+#include <cstdlib>
 #include "NBodySimulator.h"
 #include "Benchmark.h"
 #include "MetricsCalculator.h"
@@ -19,20 +20,83 @@ int main(int argc, char* argv[]) {
     int steps = 100;
     int num_particles = 2000;
     int output_every = 10;
+    int repetitions = 10;
+    int extra_repetitions = 3;
+    std::vector<int> thread_counts = {2, 4, 8, 16};
+    int variant_threads = 4;
 
     unsigned int seed = 42;
     bool run_benchmark = false;
     bool run_benchmark_all = false;
-    if (argc > 1) {
-        std::string arg1(argv[1]);
-        if (arg1 == "--benchmark-all") {
+    for (int i = 1; i < argc; ++i) {
+        std::string arg(argv[i]);
+        auto require_value = [&](const std::string& option) -> std::string {
+            if (i + 1 >= argc) {
+                std::cerr << "Error: falta valor para " << option << std::endl;
+                std::exit(1);
+            }
+            return std::string(argv[++i]);
+        };
+
+        if (arg == "--benchmark-all" || arg == "-analysis") {
             run_benchmark = true;
             run_benchmark_all = true;
-        } else if (arg1 == "--benchmark") {
+        } else if (arg == "--benchmark" || arg == "-benchmark") {
             run_benchmark = true;
+        } else if (arg == "--bodies" || arg == "-n") {
+            num_particles = std::stoi(require_value(arg));
+        } else if (arg == "--steps") {
+            steps = std::stoi(require_value(arg));
+        } else if (arg == "--output-every") {
+            output_every = std::stoi(require_value(arg));
+        } else if (arg == "--dt") {
+            dt = std::stod(require_value(arg));
+        } else if (arg == "--epsilon") {
+            epsilon = std::stod(require_value(arg));
+        } else if (arg == "--seed") {
+            seed = static_cast<unsigned int>(std::stoul(require_value(arg)));
+        } else if (arg == "--repetitions") {
+            repetitions = std::stoi(require_value(arg));
+        } else if (arg == "--extra-repetitions") {
+            extra_repetitions = std::stoi(require_value(arg));
+        } else if (arg == "--variant-threads") {
+            variant_threads = std::stoi(require_value(arg));
+        } else if (arg == "--threads") {
+            thread_counts.clear();
+            std::string value = require_value(arg);
+            size_t start = 0;
+            while (start < value.size()) {
+                size_t comma = value.find(',', start);
+                std::string token = value.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+                if (!token.empty()) {
+                    thread_counts.push_back(std::stoi(token));
+                }
+                if (comma == std::string::npos) break;
+                start = comma + 1;
+            }
+        } else if (arg == "--help" || arg == "-h") {
+            std::cout << "Uso: ./nbody_sim [--benchmark|--benchmark-all] [opciones]\n"
+                      << "Opciones:\n"
+                      << "  --bodies N             Numero de cuerpos (default: 2000)\n"
+                      << "  --steps N              Pasos temporales (default: 100)\n"
+                      << "  --dt X                 Paso de tiempo (default: 0.01)\n"
+                      << "  --epsilon X            Suavizado (default: 0.1)\n"
+                      << "  --seed N               Semilla reproducible (default: 42)\n"
+                      << "  --repetitions N        Repeticiones benchmark principal (default: 10)\n"
+                      << "  --extra-repetitions N  Repeticiones benchmarks extra (default: 3)\n"
+                      << "  --threads LISTA        Hilos a medir, separados por coma (default: 2,4,8,16)\n"
+                      << "  --variant-threads N    Hilos para schedules/chunks/sync (default: 4)\n";
+            return 0;
         } else {
-            seed = static_cast<unsigned int>(std::stoul(argv[1]));
+            seed = static_cast<unsigned int>(std::stoul(arg));
         }
+    }
+
+    if (num_particles <= 0 || steps <= 0 || output_every <= 0 || repetitions <= 0 ||
+        extra_repetitions <= 0 || thread_counts.empty() || variant_threads <= 0 ||
+        dt <= 0.0 || epsilon <= 0.0) {
+        std::cerr << "Error: parametros invalidos. Use --help para ver opciones." << std::endl;
+        return 1;
     }
 
     std::vector<Particle> initial_particles;
@@ -199,9 +263,10 @@ int main(int argc, char* argv[]) {
         }
 
     } else {
-        std::cout << "--- Modo Benchmark (" << num_particles << " particulas) ---" << std::endl;
+        std::cout << "--- Modo Benchmark (" << num_particles << " particulas, "
+                  << steps << " pasos, " << repetitions << " repeticiones) ---" << std::endl;
 
-        Benchmark bench(10);
+        Benchmark bench(repetitions);
         std::ofstream outfile("benchmark_results.dat");
         outfile << "Threads\tMeanTime\tStdDev\tSpeedup\tSpeedupErr\tEfficiency\tEfficiencyErr\tSerialFraction\n";
 
@@ -220,7 +285,6 @@ int main(int argc, char* argv[]) {
         auto serial_stats = bench.measureExecutionTime(run_simulation);
         std::cout << "Tiempo base: " << serial_stats.first << "s (+/- " << serial_stats.second << "s)\n";
 
-        std::vector<int> thread_counts = {2, 4, 8, 16};
         std::vector<BenchmarkResult> all_results;
 
         for (int p : thread_counts) {
@@ -256,9 +320,9 @@ int main(int argc, char* argv[]) {
         std::cout << "Archivo de escalamiento generado: 'scaling_analysis.dat'" << std::endl;
 
         if (run_benchmark_all) {
-            const int bench_threads = 4;
+            const int bench_threads = variant_threads;
             omp_set_num_threads(bench_threads);
-            Benchmark bench3(3);
+            Benchmark bench3(extra_repetitions);
             std::cout << "\n--- Benchmarks adicionales (schedule, chunk, sync) con "
                       << bench_threads << " hilos ---" << std::endl;
 

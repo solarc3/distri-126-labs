@@ -15,14 +15,14 @@ $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 benchmark: $(TARGET)
-	./$(TARGET) --benchmark
+	./$(TARGET) --benchmark $(ARGS)
 
 benchmark-all: $(TARGET)
-	./$(TARGET) --benchmark-all
+	./$(TARGET) --benchmark-all $(ARGS)
 
 analysis: $(TARGET)
 	@echo "Ejecutando benchmarks completos..."
-	./$(TARGET) --benchmark-all
+	./$(TARGET) --benchmark-all $(ARGS)
 	@echo "Generando graficos de rendimiento..."
 	python3 plot_performance.py
 

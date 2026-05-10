@@ -92,6 +92,29 @@ make clean && make
 ./nbody_sim --benchmark-all    # Modo benchmark completo: schedules, chunks, sync
 ```
 
+### Parametros de benchmark
+Los modos de ejecucion aceptan parametros para reproducir corridas mas largas o barrer tamanos
+de problema sin recompilar:
+
+```bash
+./nbody_sim --benchmark-all --bodies 4000 --steps 500 --repetitions 10 --threads 1,2,4,8,16
+make analysis ARGS="--bodies 4000 --steps 500 --repetitions 10 --threads 1,2,4,8,16"
+```
+
+Opciones disponibles:
+- `--bodies N`: numero de cuerpos.
+- `--steps N`: pasos temporales.
+- `--dt X`: paso de tiempo.
+- `--epsilon X`: suavizado gravitatorio.
+- `--seed N`: semilla reproducible.
+- `--repetitions N`: repeticiones del benchmark principal.
+- `--extra-repetitions N`: repeticiones para schedules, chunks y sincronizacion.
+- `--threads 1,2,4,8,16`: lista de hilos a medir.
+- `--variant-threads N`: hilos usados en benchmarks de variantes OpenMP.
+
+En Slurm, `run_cluster.slurm` ejecuta una corrida parametrizable y `run_bodies_sweep.slurm`
+barre varios valores de `N`, guardando resultados en `results/N...`.
+
 ### Pruebas Automatizadas
 ```bash
 make test
