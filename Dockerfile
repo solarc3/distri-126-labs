@@ -30,6 +30,8 @@ COPY --chown=appuser:appuser *.h *.cpp ./
 COPY --chown=appuser:appuser tests/       tests/
 COPY --chown=appuser:appuser plot_performance.py ./
 
+RUN chown -R appuser:appuser /home/appuser/app
+
 USER appuser
 RUN make clean && make
 
