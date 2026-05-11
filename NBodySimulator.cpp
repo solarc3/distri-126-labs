@@ -300,6 +300,61 @@ void NBodySimulator::calculateEnergy(double& kinetic, double& potential, int met
     }
 }
 
+// =============================================================================
+// Benchmark: Sincronización con contención real
+// Compara critical, atomic y reduction al acumular energía cinética global.
+// A diferencia del sync_benchmark original (índices únicos, sin contención),
+// aquí todos los hilos compiten por la misma variable compartida.
+// =============================================================================
+double NBodySimulator::computeKineticSync(int sync_method) {
+    int n = particles.size();
+    double total_kinetic = 0.0;
+
+    switch (sync_method) {
+        case 0: // critical — un solo hilo a la vez en la zona protegida
+            #pragma omp parallel for
+            for (int i = 0; i < n; ++i) {
+                double vx = particles[i].vx;
+                double vy = particles[i].vy;
+                double ki = 0.5 * particles[i].mass * (vx * vx + vy * vy);
+                #pragma omp critical
+                {
+                    total_kinetic += ki;
+                }
+            }
+            break;
+        case 1: // atomic — instrucción atómica del hardware (más eficiente que critical)
+            #pragma omp parallel for
+            for (int i = 0; i < n; ++i) {
+                double vx = particles[i].vx;
+                double vy = particles[i].vy;
+                double ki = 0.5 * particles[i].mass * (vx * vx + vy * vy);
+                #pragma omp atomic
+                total_kinetic += ki;
+            }
+            break;
+        case 2: // reduction — cada hilo acumula en privado, combinación al final
+            #pragma omp parallel for reduction(+:total_kinetic)
+            for (int i = 0; i < n; ++i) {
+                double vx = particles[i].vx;
+                double vy = particles[i].vy;
+                total_kinetic += 0.5 * particles[i].mass * (vx * vx + vy * vy);
+            }
+            break;
+        default:
+            break;
+    }
+    return total_kinetic;
+}
+
+// =============================================================================
+// processBodies — Versiones originales (overhead puro)
+//
+// NOTA: El cómputo dentro del loop es trivial a propósito.
+// Sirve para medir el costo de crear/destruir tareas vs parallel-for,
+// no como benchmark de throughput. El compilador puede eliminar el
+// cómputo muerto, pero el overhead de scheduling permanece.
+// =============================================================================
 void NBodySimulator::processBodies() {
     int n = particles.size();
     #pragma omp parallel for
@@ -393,6 +448,74 @@ void NBodySimulator::processBodies(int task_type, bool use_single) {
             }
         }
     }
+}
+
+// =============================================================================
+// processBodiesWithWork — Versión con trabajo real
+//
+// Acumula la masa total del sistema usando diferentes patrones de tareas
+// y sincronización. A diferencia de processBodies(), el compilador no puede
+// eliminar el cómputo porque el resultado se retorna y se usa fuera.
+// =============================================================================
+double NBodySimulator::processBodiesWithWork(int task_type, int sync_type) {
+    int n = particles.size();
+    double total_mass = 0.0;
+
+    if (task_type == 0) {
+        // Task-based: cada partícula en su propia tarea
+        #pragma omp parallel
+        {
+            #pragma omp single
+            {
+                for (int i = 0; i < n; ++i) {
+                    #pragma omp task firstprivate(i) shared(total_mass)
+                    {
+                        double m = particles[i].mass;
+                        if (sync_type == 0) {
+                            #pragma omp atomic
+                            total_mass += m;
+                        } else if (sync_type == 1) {
+                            #pragma omp critical
+                            total_mass += m;
+                        }
+                        // sync_type == 2 (reduction) no aplica con tasks;
+                        // se usa atomic como fallback razonable
+                        else {
+                            #pragma omp atomic
+                            total_mass += m;
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        // Parallel-for con distintos tipos de sincronización
+        switch (sync_type) {
+            case 0: // atomic
+                #pragma omp parallel for
+                for (int i = 0; i < n; ++i) {
+                    #pragma omp atomic
+                    total_mass += particles[i].mass;
+                }
+                break;
+            case 1: // critical
+                #pragma omp parallel for
+                for (int i = 0; i < n; ++i) {
+                    #pragma omp critical
+                    total_mass += particles[i].mass;
+                }
+                break;
+            case 2: // reduction (óptimo)
+                #pragma omp parallel for reduction(+:total_mass)
+                for (int i = 0; i < n; ++i) {
+                    total_mass += particles[i].mass;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+    return total_mass;
 }
 
 void NBodySimulator::simulatePhasesBarrier() {

@@ -34,9 +34,22 @@ public:
     void calculateEnergy(double& kinetic, double& potential, int method);
     void calculateEnergy(double& kinetic, double& potential, int method, bool use_private);
 
+    // --- Benchmarks de sincronización con contención real ---
+    // sync_method: 0=critical, 1=atomic, 2=reduction
+    // Retorna la energía cinética total (para forzar al compilador a mantener el código)
+    double computeKineticSync(int sync_method);
+
+    // --- Benchmarks de tasking y processBodies ---
+    // Versión original: mide overhead puro de task/parallel-for (cómputo mínimo)
+    // Útil para comparar el costo de creación de tareas vs parallel-for.
     void processBodies();
     void processBodies(int task_type);
     void processBodies(int task_type, bool use_single);
+
+    // Versión con trabajo real: acumula masa total con diferentes patrones de sync.
+    // task_type: 0=task, 1=parallel-for
+    // sync_type: 0=atomic, 1=critical, 2=reduction
+    double processBodiesWithWork(int task_type, int sync_type);
 
     void simulatePhasesBarrier();
     void parallelInitializationSingle();

@@ -438,6 +438,73 @@ int main(int argc, char* argv[]) {
                 mf.close();
                 std::cout << "  -> memory_benchmark.dat" << std::endl;
             }
+
+            // ================================================================
+            // Benchmark F: Contención real de sincronización
+            // Suma global de energía cinética con critical, atomic, reduction.
+            // A diferencia del sync_benchmark (Benchmark C) donde cada hilo
+            // escribe a partículas distintas (sin contención), aquí todos los
+            // hilos compiten por la misma variable compartida.
+            // ================================================================
+            {
+                std::ofstream ef("energy_sync_benchmark.dat");
+                ef << "SyncMethod\tMeanTime\tStdDev\n";
+                const char* en[] = {"Critical", "Atomic", "Reduction"};
+                for (int e = 0; e <= 2; ++e) {
+                    // Usar volatile para evitar que el compilador descarte el resultado
+                    volatile double sink = 0.0;
+                    auto task = [&]() {
+                        NBodySimulator sim(G, epsilon);
+                        for (const auto& p : initial_particles) sim.addParticle(p);
+                        for (int step = 0; step < steps; ++step) {
+                            sim.computeAccelerations();
+                            sim.integrate(dt);
+                            double k = sim.computeKineticSync(e);
+                            sink = k;  // forzar materialización del resultado
+                        }
+                    };
+                    auto stats = bench3.measureExecutionTime(task);
+                    ef << en[e] << "\t" << stats.first << "\t" << stats.second << "\n";
+                    std::cout << "  EnergySync " << en[e] << ": " << stats.first << " s" << std::endl;
+                }
+                ef.close();
+                std::cout << "  -> energy_sync_benchmark.dat" << std::endl;
+            }
+
+            // ================================================================
+            // Benchmark G: Task vs Parallel-For con trabajo real
+            // processBodiesWithWork acumula masa total usando diferentes
+            // patrones de sincronización. A diferencia del task_benchmark
+            // original (Benchmark D) que mide overhead puro, este mide
+            // throughput con trabajo real que el compilador no puede eliminar.
+            // ================================================================
+            {
+                std::ofstream wf("task_work_benchmark.dat");
+                wf << "TaskType\tSyncType\tMeanTime\tStdDev\n";
+                const char* tn2[] = {"Task", "ParallelFor"};
+                const char* sn2[] = {"Atomic", "Critical", "Reduction"};
+                for (int t = 0; t <= 1; ++t) {
+                    int max_sync = (t == 0) ? 1 : 2;  // task solo tiene atomic/critical
+                    for (int s = 0; s <= max_sync; ++s) {
+                        volatile double sink = 0.0;
+                        auto task = [&]() {
+                            NBodySimulator sim(G, epsilon);
+                            for (const auto& p : initial_particles) sim.addParticle(p);
+                            for (int step = 0; step < steps; ++step) {
+                                sim.computeAccelerations();
+                                sim.integrate(dt);
+                                double m = sim.processBodiesWithWork(t, s);
+                                sink = m;
+                            }
+                        };
+                        auto stats = bench3.measureExecutionTime(task);
+                        wf << tn2[t] << "\t" << sn2[s] << "\t" << stats.first << "\t" << stats.second << "\n";
+                        std::cout << "  TaskWork " << tn2[t] << "/" << sn2[s] << ": " << stats.first << " s" << std::endl;
+                    }
+                }
+                wf.close();
+                std::cout << "  -> task_work_benchmark.dat" << std::endl;
+            }
         }
     }
 
