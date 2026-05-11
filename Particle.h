@@ -3,7 +3,7 @@
 
 #include <iosfwd>
 
-class Particle {
+class alignas(64) Particle {
     friend class Integrator;
     friend class MetricsCalculator;
     friend class NBodySimulator;
@@ -13,6 +13,7 @@ class Particle {
         double vx, vy;     // Velocidad
         double ax, ay;     // Aceleración (se acumula en cada paso)
         double mass;       // Masa de la partícula
+        char padding[64 - 7 * sizeof(double)];
 
 public:
     // Constructor
@@ -33,5 +34,8 @@ public:
     double getAx() const;
     double getAy() const;
 };
+
+static_assert(sizeof(Particle) == 64, "Particle must be exactly one cache line");
+static_assert(alignof(Particle) == 64, "Particle must be 64-byte aligned");
 
 #endif
