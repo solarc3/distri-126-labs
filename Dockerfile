@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     python3 \
     python3-pip \
+    awscli \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -29,10 +30,12 @@ COPY --chown=appuser:appuser Makefile ./
 COPY --chown=appuser:appuser *.h *.cpp ./
 COPY --chown=appuser:appuser tests/       tests/
 COPY --chown=appuser:appuser plot_performance.py ./
+COPY --chown=appuser:appuser run_batch.sh ./
 
 RUN chown -R appuser:appuser /home/appuser/app
+RUN chmod +x /home/appuser/app/run_batch.sh
 
 USER appuser
 RUN make clean && make
 
-CMD ["make", "test"]
+CMD ["./run_batch.sh"]
