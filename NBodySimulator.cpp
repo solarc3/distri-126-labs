@@ -21,60 +21,53 @@ const std::vector<Particle>& NBodySimulator::getParticles() const {
 }
 
 void NBodySimulator::computeAccelerations() {
-    computeAccelerations(1);
+    computeAccelerations(0);
 }
 
 void NBodySimulator::computeAccelerations(int schedule_type) {
     int n = particles.size();
 
-    for (int i = 0; i < n; ++i) {
-        particles[i].resetAcceleration();
-    }
+    auto compute_particle = [&](int i) {
+        double ax_local = 0.0;
+        double ay_local = 0.0;
+        const double xi = particles[i].x;
+        const double yi = particles[i].y;
+
+        for (int j = 0; j < n; ++j) {
+            if (i == j) continue;
+
+            double dx = particles[j].x - xi;
+            double dy = particles[j].y - yi;
+            double distSq = dx * dx + dy * dy + epsilon * epsilon;
+            double invDist = 1.0 / std::sqrt(distSq);
+            double invDist3 = invDist * invDist * invDist;
+            double a_mag = G * particles[j].mass * invDist3;
+
+            ax_local += a_mag * dx;
+            ay_local += a_mag * dy;
+        }
+
+        particles[i].ax = ax_local;
+        particles[i].ay = ay_local;
+    };
 
     switch (schedule_type) {
         case 0: // static
             #pragma omp parallel for schedule(static)
             for (int i = 0; i < n; ++i) {
-                for (int j = 0; j < n; ++j) {
-                    if (i == j) continue;
-                    double dx = particles[j].x - particles[i].x;
-                    double dy = particles[j].y - particles[i].y;
-                    double distSq = dx * dx + dy * dy;
-                    double distSoftened = std::sqrt(distSq + epsilon * epsilon);
-                    double denominator = distSoftened * distSoftened * distSoftened;
-                    double a_mag = (G * particles[j].mass) / denominator;
-                    particles[i].addAcceleration(a_mag * dx, a_mag * dy);
-                }
+                compute_particle(i);
             }
             break;
         case 1: // dynamic
             #pragma omp parallel for schedule(dynamic)
             for (int i = 0; i < n; ++i) {
-                for (int j = 0; j < n; ++j) {
-                    if (i == j) continue;
-                    double dx = particles[j].x - particles[i].x;
-                    double dy = particles[j].y - particles[i].y;
-                    double distSq = dx * dx + dy * dy;
-                    double distSoftened = std::sqrt(distSq + epsilon * epsilon);
-                    double denominator = distSoftened * distSoftened * distSoftened;
-                    double a_mag = (G * particles[j].mass) / denominator;
-                    particles[i].addAcceleration(a_mag * dx, a_mag * dy);
-                }
+                compute_particle(i);
             }
             break;
         case 2: // guided
             #pragma omp parallel for schedule(guided)
             for (int i = 0; i < n; ++i) {
-                for (int j = 0; j < n; ++j) {
-                    if (i == j) continue;
-                    double dx = particles[j].x - particles[i].x;
-                    double dy = particles[j].y - particles[i].y;
-                    double distSq = dx * dx + dy * dy;
-                    double distSoftened = std::sqrt(distSq + epsilon * epsilon);
-                    double denominator = distSoftened * distSoftened * distSoftened;
-                    double a_mag = (G * particles[j].mass) / denominator;
-                    particles[i].addAcceleration(a_mag * dx, a_mag * dy);
-                }
+                compute_particle(i);
             }
             break;
         default:
@@ -86,54 +79,47 @@ void NBodySimulator::computeAccelerations(int schedule_type) {
 void NBodySimulator::computeAccelerations(int schedule_type, int chunk_size) {
     int n = particles.size();
 
-    for (int i = 0; i < n; ++i) {
-        particles[i].resetAcceleration();
-    }
+    auto compute_particle = [&](int i) {
+        double ax_local = 0.0;
+        double ay_local = 0.0;
+        const double xi = particles[i].x;
+        const double yi = particles[i].y;
+
+        for (int j = 0; j < n; ++j) {
+            if (i == j) continue;
+
+            double dx = particles[j].x - xi;
+            double dy = particles[j].y - yi;
+            double distSq = dx * dx + dy * dy + epsilon * epsilon;
+            double invDist = 1.0 / std::sqrt(distSq);
+            double invDist3 = invDist * invDist * invDist;
+            double a_mag = G * particles[j].mass * invDist3;
+
+            ax_local += a_mag * dx;
+            ay_local += a_mag * dy;
+        }
+
+        particles[i].ax = ax_local;
+        particles[i].ay = ay_local;
+    };
 
     switch (schedule_type) {
         case 0: // static with chunk
             #pragma omp parallel for schedule(static, chunk_size)
             for (int i = 0; i < n; ++i) {
-                for (int j = 0; j < n; ++j) {
-                    if (i == j) continue;
-                    double dx = particles[j].x - particles[i].x;
-                    double dy = particles[j].y - particles[i].y;
-                    double distSq = dx * dx + dy * dy;
-                    double distSoftened = std::sqrt(distSq + epsilon * epsilon);
-                    double denominator = distSoftened * distSoftened * distSoftened;
-                    double a_mag = (G * particles[j].mass) / denominator;
-                    particles[i].addAcceleration(a_mag * dx, a_mag * dy);
-                }
+                compute_particle(i);
             }
             break;
         case 1: // dynamic with chunk
             #pragma omp parallel for schedule(dynamic, chunk_size)
             for (int i = 0; i < n; ++i) {
-                for (int j = 0; j < n; ++j) {
-                    if (i == j) continue;
-                    double dx = particles[j].x - particles[i].x;
-                    double dy = particles[j].y - particles[i].y;
-                    double distSq = dx * dx + dy * dy;
-                    double distSoftened = std::sqrt(distSq + epsilon * epsilon);
-                    double denominator = distSoftened * distSoftened * distSoftened;
-                    double a_mag = (G * particles[j].mass) / denominator;
-                    particles[i].addAcceleration(a_mag * dx, a_mag * dy);
-                }
+                compute_particle(i);
             }
             break;
         case 2: // guided with chunk
             #pragma omp parallel for schedule(guided, chunk_size)
             for (int i = 0; i < n; ++i) {
-                for (int j = 0; j < n; ++j) {
-                    if (i == j) continue;
-                    double dx = particles[j].x - particles[i].x;
-                    double dy = particles[j].y - particles[i].y;
-                    double distSq = dx * dx + dy * dy;
-                    double distSoftened = std::sqrt(distSq + epsilon * epsilon);
-                    double denominator = distSoftened * distSoftened * distSoftened;
-                    double a_mag = (G * particles[j].mass) / denominator;
-                    particles[i].addAcceleration(a_mag * dx, a_mag * dy);
-                }
+                compute_particle(i);
             }
             break;
         default:
