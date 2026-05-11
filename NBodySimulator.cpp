@@ -26,6 +26,7 @@ void NBodySimulator::computeAccelerations() {
 
 void NBodySimulator::computeAccelerations(int schedule_type) {
     int n = particles.size();
+    const double eps2 = epsilon * epsilon;
 
     auto compute_particle = [&](int i) {
         double ax_local = 0.0;
@@ -34,11 +35,11 @@ void NBodySimulator::computeAccelerations(int schedule_type) {
         const double yi = particles[i].y;
 
         for (int j = 0; j < n; ++j) {
-            if (i == j) continue;
+            if (eps2 == 0.0 && i == j) continue;
 
             double dx = particles[j].x - xi;
             double dy = particles[j].y - yi;
-            double distSq = dx * dx + dy * dy + epsilon * epsilon;
+            double distSq = dx * dx + dy * dy + eps2;
             double invDist = 1.0 / std::sqrt(distSq);
             double invDist3 = invDist * invDist * invDist;
             double a_mag = G * particles[j].mass * invDist3;
@@ -78,6 +79,7 @@ void NBodySimulator::computeAccelerations(int schedule_type) {
 
 void NBodySimulator::computeAccelerations(int schedule_type, int chunk_size) {
     int n = particles.size();
+    const double eps2 = epsilon * epsilon;
 
     auto compute_particle = [&](int i) {
         double ax_local = 0.0;
@@ -86,11 +88,11 @@ void NBodySimulator::computeAccelerations(int schedule_type, int chunk_size) {
         const double yi = particles[i].y;
 
         for (int j = 0; j < n; ++j) {
-            if (i == j) continue;
+            if (eps2 == 0.0 && i == j) continue;
 
             double dx = particles[j].x - xi;
             double dy = particles[j].y - yi;
-            double distSq = dx * dx + dy * dy + epsilon * epsilon;
+            double distSq = dx * dx + dy * dy + eps2;
             double invDist = 1.0 / std::sqrt(distSq);
             double invDist3 = invDist * invDist * invDist;
             double a_mag = G * particles[j].mass * invDist3;
@@ -154,6 +156,110 @@ void NBodySimulator::computeAccelerationsCollapse() {
             #pragma omp atomic
             particles[i].ay += a_mag * dy;
         }
+    }
+}
+
+void NBodySimulator::computeAccelerationsNewton3() {
+    const int n = particles.size();
+    if (n == 0) {
+        return;
+    }
+
+    const int max_threads = omp_get_max_threads();
+    std::vector<double> ax_private(static_cast<size_t>(max_threads) * n, 0.0);
+    std::vector<double> ay_private(static_cast<size_t>(max_threads) * n, 0.0);
+
+    #pragma omp parallel
+    {
+        const int tid = omp_get_thread_num();
+        double* ax = ax_private.data() + static_cast<size_t>(tid) * n;
+        double* ay = ay_private.data() + static_cast<size_t>(tid) * n;
+
+        #pragma omp for schedule(dynamic, 8)
+        for (int i = 0; i < n - 1; ++i) {
+            const double xi = particles[i].x;
+            const double yi = particles[i].y;
+            const double mi = particles[i].mass;
+
+            for (int j = i + 1; j < n; ++j) {
+                const double dx = particles[j].x - xi;
+                const double dy = particles[j].y - yi;
+                const double distSq = dx * dx + dy * dy + epsilon * epsilon;
+                const double invDist = 1.0 / std::sqrt(distSq);
+                const double invDist3 = invDist * invDist * invDist;
+                const double common = G * invDist3;
+
+                const double ax_i = common * particles[j].mass * dx;
+                const double ay_i = common * particles[j].mass * dy;
+                const double ax_j = -common * mi * dx;
+                const double ay_j = -common * mi * dy;
+
+                ax[i] += ax_i;
+                ay[i] += ay_i;
+                ax[j] += ax_j;
+                ay[j] += ay_j;
+            }
+        }
+    }
+
+    #pragma omp parallel for schedule(static)
+    for (int i = 0; i < n; ++i) {
+        double ax_total = 0.0;
+        double ay_total = 0.0;
+
+        for (int t = 0; t < max_threads; ++t) {
+            const size_t idx = static_cast<size_t>(t) * n + i;
+            ax_total += ax_private[idx];
+            ay_total += ay_private[idx];
+        }
+
+        particles[i].ax = ax_total;
+        particles[i].ay = ay_total;
+    }
+}
+
+void NBodySimulator::computeAccelerationsSoA() {
+    const int n = particles.size();
+    if (n == 0) {
+        return;
+    }
+
+    std::vector<double> x(n);
+    std::vector<double> y(n);
+    std::vector<double> mass(n);
+
+    #pragma omp parallel for schedule(static)
+    for (int i = 0; i < n; ++i) {
+        x[i] = particles[i].x;
+        y[i] = particles[i].y;
+        mass[i] = particles[i].mass;
+    }
+
+    const double eps2 = epsilon * epsilon;
+    const double g = G;
+
+    #pragma omp parallel for schedule(static)
+    for (int i = 0; i < n; ++i) {
+        double ax_local = 0.0;
+        double ay_local = 0.0;
+        const double xi = x[i];
+        const double yi = y[i];
+
+        #pragma omp simd reduction(+:ax_local, ay_local)
+        for (int j = 0; j < n; ++j) {
+            const double dx = x[j] - xi;
+            const double dy = y[j] - yi;
+            const double distSq = dx * dx + dy * dy + eps2;
+            const double invDist = 1.0 / std::sqrt(distSq);
+            const double invDist3 = invDist * invDist * invDist;
+            const double a_mag = g * mass[j] * invDist3;
+
+            ax_local += a_mag * dx;
+            ay_local += a_mag * dy;
+        }
+
+        particles[i].ax = ax_local;
+        particles[i].ay = ay_local;
     }
 }
 

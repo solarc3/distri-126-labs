@@ -30,6 +30,10 @@ int main(int argc, char* argv[]) {
     bool run_benchmark_all = false;
     bool skip_serial = false;
     double serial_time_override = -1.0;
+    std::string force_mode = "classic";
+    if (const char* env_force_mode = std::getenv("NBODY_FORCE_MODE")) {
+        force_mode = env_force_mode;
+    }
     for (int i = 1; i < argc; ++i) {
         std::string arg(argv[i]);
         auto require_value = [&](const std::string& option) -> std::string {
@@ -80,6 +84,8 @@ int main(int argc, char* argv[]) {
             skip_serial = true;
         } else if (arg == "--serial-seconds") {
             serial_time_override = std::stod(require_value(arg));
+        } else if (arg == "--force-mode") {
+            force_mode = require_value(arg);
         } else if (arg == "--help" || arg == "-h") {
             std::cout << "Uso: ./nbody_sim [--benchmark|--benchmark-all] [opciones]\n"
                       << "Opciones:\n"
@@ -93,7 +99,8 @@ int main(int argc, char* argv[]) {
                       << "  --threads LISTA        Hilos a medir, separados por coma (default: 2,4,8,16)\n"
                       << "  --variant-threads N    Hilos para schedules/chunks/sync (default: 4)\n"
                       << "  --skip-serial          Saltea la medicion T=1 (usar con --serial-seconds)\n"
-                      << "  --serial-seconds X     Tiempo serial pre-calculado para speedup\n";
+                      << "  --serial-seconds X     Tiempo serial pre-calculado para speedup\n"
+                      << "  --force-mode M         Calculo de fuerzas: classic, newton o soa (default: classic)\n";
             return 0;
         } else {
             seed = static_cast<unsigned int>(std::stoul(arg));
@@ -106,6 +113,20 @@ int main(int argc, char* argv[]) {
         std::cerr << "Error: parametros invalidos. Use --help para ver opciones." << std::endl;
         return 1;
     }
+    if (force_mode != "classic" && force_mode != "newton" && force_mode != "soa") {
+        std::cerr << "Error: --force-mode debe ser classic, newton o soa." << std::endl;
+        return 1;
+    }
+
+    auto compute_forces = [&](NBodySimulator& sim) {
+        if (force_mode == "newton") {
+            sim.computeAccelerationsNewton3();
+        } else if (force_mode == "soa") {
+            sim.computeAccelerationsSoA();
+        } else {
+            sim.computeAccelerations();
+        }
+    };
 
     std::vector<Particle> initial_particles;
     std::mt19937 gen(seed);
@@ -134,7 +155,7 @@ int main(int argc, char* argv[]) {
 
         double start = omp_get_wtime();
         for (int step = 0; step < steps; ++step) {
-            sim.computeAccelerations();
+            compute_forces(sim);
             sim.integrate(dt);
 
             if (step % output_every == 0) {
@@ -283,7 +304,7 @@ int main(int argc, char* argv[]) {
             for (const auto& p : initial_particles) sim.addParticle(p);
 
             for (int step = 0; step < steps; ++step) {
-                sim.computeAccelerations();
+                compute_forces(sim);
                 sim.integrate(dt);
             }
         };

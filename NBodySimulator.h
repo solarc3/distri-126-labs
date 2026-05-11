@@ -20,6 +20,8 @@ public:
     void computeAccelerations(int schedule_type);
     void computeAccelerations(int schedule_type, int chunk_size);
     void computeAccelerationsCollapse();
+    void computeAccelerationsNewton3();
+    void computeAccelerationsSoA();
 
     void integrate(double dt);
 

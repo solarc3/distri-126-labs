@@ -231,6 +231,36 @@ TEST(OpenMPOverloadTest, CollapseProducesFiniteResult) {
     }
 }
 
+TEST(OpenMPOverloadTest, Newton3ProducesSameResult) {
+    auto ref = makeTestSim(1.0, 0.1, 80);
+    ref.computeAccelerations();
+    const auto& rp = ref.getParticles();
+
+    auto sim = makeTestSim(1.0, 0.1, 80);
+    sim.computeAccelerationsNewton3();
+    const auto& sp = sim.getParticles();
+
+    for (size_t i = 0; i < sp.size(); ++i) {
+        EXPECT_NEAR(rp[i].getAx(), sp[i].getAx(), 1e-9) << "particle " << i;
+        EXPECT_NEAR(rp[i].getAy(), sp[i].getAy(), 1e-9) << "particle " << i;
+    }
+}
+
+TEST(OpenMPOverloadTest, SoAProducesSameResult) {
+    auto ref = makeTestSim(1.0, 0.1, 80);
+    ref.computeAccelerations();
+    const auto& rp = ref.getParticles();
+
+    auto sim = makeTestSim(1.0, 0.1, 80);
+    sim.computeAccelerationsSoA();
+    const auto& sp = sim.getParticles();
+
+    for (size_t i = 0; i < sp.size(); ++i) {
+        EXPECT_NEAR(rp[i].getAx(), sp[i].getAx(), 1e-9) << "particle " << i;
+        EXPECT_NEAR(rp[i].getAy(), sp[i].getAy(), 1e-9) << "particle " << i;
+    }
+}
+
 TEST(OpenMPOverloadTest, IntegrateSyncTypesProduceSameResult) {
     double dt = 0.01;
     // Referencia: NORMAL
