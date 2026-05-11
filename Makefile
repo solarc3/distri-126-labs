@@ -19,6 +19,8 @@ benchmark: $(TARGET)
 
 benchmark-all: $(TARGET)
 	./$(TARGET) --benchmark-all $(ARGS)
+	@echo "Generando graficos de rendimiento..."
+	python3 plot_performance.py
 
 analysis: $(TARGET)
 	@echo "Ejecutando benchmarks completos..."
