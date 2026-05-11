@@ -16,6 +16,9 @@ class alignas(64) Particle {
         char padding[64 - 7 * sizeof(double)];
 
 public:
+    // Constructor por defecto: permite resize/copia paralela con first-touch NUMA.
+    Particle();
+
     // Constructor
     Particle(double start_x, double start_y, double start_vx, double start_vy, double m);
 

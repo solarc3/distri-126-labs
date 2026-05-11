@@ -21,7 +21,7 @@ submit() {
     local name="$1"
     local s3_folder="$2"
     local args="$3"
-    local omp_threads="${4:-48}"
+    local omp_threads="${4:-192}"
 
     echo "=== Submit: ${name} ==="
     aws batch submit-job \
@@ -51,32 +51,32 @@ echo "==================== FASE 1: N=1000 ===================="
 submit \
     "nbody-n1000-accum-static" \
     "n1000-s100-r5-accum-static" \
-    "--bodies 1000 --steps 100 --repetitions 5 --extra-repetitions 1 --threads 1,2,4,8,16,24,32,48 --variant-threads 8"
+    "--bodies 1000 --steps 100 --repetitions 5 --extra-repetitions 1 --threads 1,2,4,8,16,32,64,96,128,192 --variant-threads 96 --force-mode soa"
 
 # 1b. N=1000 con más repeticiones para reducir ruido estadístico (opcional)
 submit \
     "nbody-n1000-r10-accum-static" \
     "n1000-s100-r10-accum-static" \
-    "--bodies 1000 --steps 100 --repetitions 10 --extra-repetitions 3 --threads 1,2,4,8,16,24,32,48 --variant-threads 8"
+    "--bodies 1000 --steps 100 --repetitions 10 --extra-repetitions 3 --threads 1,2,4,8,16,32,64,96,128,192 --variant-threads 96 --force-mode soa"
 
 echo "==================== FASE 2: N=5000 ===================="
 
 submit \
     "nbody-n5000-r3-accum-static" \
     "n5000-s100-r3-accum-static" \
-    "--bodies 5000 --steps 100 --repetitions 3 --extra-repetitions 1 --threads 1,2,4,8,16,24,32,48 --variant-threads 8"
+    "--bodies 5000 --steps 100 --repetitions 3 --extra-repetitions 1 --threads 1,2,4,8,16,32,64,96,128,192 --variant-threads 96 --force-mode soa"
 
 submit \
     "nbody-n5000-r5-accum-static" \
     "n5000-s100-r5-accum-static" \
-    "--bodies 5000 --steps 100 --repetitions 5 --extra-repetitions 1 --threads 1,2,4,8,16,24,32,48 --variant-threads 8"
+    "--bodies 5000 --steps 100 --repetitions 5 --extra-repetitions 1 --threads 1,2,4,8,16,32,64,96,128,192 --variant-threads 96 --force-mode soa"
 
 echo "==================== FASE 3: N=2000 (interpolacion) ===================="
 
 submit \
     "nbody-n2000-r5-accum-static" \
     "n2000-s100-r5-accum-static" \
-    "--bodies 2000 --steps 100 --repetitions 5 --extra-repetitions 1 --threads 1,2,4,8,16,24,32,48 --variant-threads 8"
+    "--bodies 2000 --steps 100 --repetitions 5 --extra-repetitions 1 --threads 1,2,4,8,16,32,64,96,128,192 --variant-threads 96 --force-mode soa"
 
 echo "==================== DONE ===================="
 echo "Todos los jobs lanzados. Monitoreá con:"

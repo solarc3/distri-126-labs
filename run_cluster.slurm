@@ -14,7 +14,7 @@ TARGET="${TARGET:-analysis}"
 ARGS="${ARGS:-}"
 
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
-export OMP_PROC_BIND=true
+export OMP_PROC_BIND=spread
 export OMP_PLACES=cores
 
 cd "${PROJECT_DIR}"

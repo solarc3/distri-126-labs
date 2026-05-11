@@ -54,13 +54,13 @@ Al fijar `G = 1.0`, se define un sistema adimensional coherente: todas las posic
 
 | Clausula / Directiva | Archivo | Metodo |
 |---------------------|---------|--------|
-| `schedule(dynamic)` | `NBodySimulator.cpp` | `computeAccelerations()` (defecto) |
+| `schedule(static)` | `NBodySimulator.cpp` | `computeAccelerations()` (defecto classic) |
 | `schedule(static)` / `schedule(dynamic)` / `schedule(guided)` | `NBodySimulator.cpp` | `computeAccelerations(int)` |
 | `schedule(static, chunk)` / `schedule(dynamic, chunk)` / `schedule(guided, chunk)` | `NBodySimulator.cpp` | `computeAccelerations(int, int)` |
 | `collapse(2)` | `NBodySimulator.cpp` | `computeAccelerationsCollapse()` |
-| `collapse(2)` + `reduction(min:)` | `MetricsCalculator.cpp` | `calculateMinDistance()` |
-| `reduction(+:)` | `MetricsCalculator.cpp` | `calculateTotalMomentum()`, `calculateCenterOfMass()`, `calculateRMSRadius()` |
-| `reduction(+:)` | `NBodySimulator.cpp` | `calculateEnergy()` |
+| `schedule(dynamic, 8)` + `reduction(min:)` + `simd` | `MetricsCalculator.cpp` | `calculateMinDistance()` |
+| `parallel for simd` + `reduction(+:)` | `MetricsCalculator.cpp` | `calculateTotalMomentum()`, `calculateCenterOfMass()`, `calculateRMSRadius()` |
+| `parallel for simd` + `reduction(+:)` | `NBodySimulator.cpp` | `calculateEnergy()` y bucles de fuerza |
 | `atomic` | `NBodySimulator.cpp` | `calculateEnergy(kin, pot, 1)` |
 | `atomic` | `Integrator.cpp` | `integrateEuler(ATOMIC)` |
 | `critical` | `Integrator.cpp` | `integrateEuler(CRITICAL)` |
@@ -92,6 +92,11 @@ make clean && make
 ./nbody_sim --benchmark-all    # Modo benchmark completo: schedules, chunks, sync
 ```
 
+
+### Nota de rendimiento c7a / SIMD
+
+La implementacion actual tiene tres modos de calculo de fuerzas: `classic`, `newton` y `soa`. El modo por defecto es `soa`, porque separa `x`, `y` y `mass` en arreglos contiguos alineados a 64 bytes y facilita SIMD/cache blocking. Para una explicacion detallada de vectorizacion, AVX-512, cache, false sharing, NUMA y herramientas de profiling, ver [`PERFORMANCE_NOTES.md`](PERFORMANCE_NOTES.md).
+
 ### Parametros de benchmark
 Los modos de ejecucion aceptan parametros para reproducir corridas mas largas o barrer tamanos
 de problema sin recompilar:
@@ -111,6 +116,7 @@ Opciones disponibles:
 - `--extra-repetitions N`: repeticiones para schedules, chunks y sincronizacion.
 - `--threads 1,2,4,8,16`: lista de hilos a medir.
 - `--variant-threads N`: hilos usados en benchmarks de variantes OpenMP.
+- `--force-mode classic|newton|soa`: selecciona el kernel de fuerza. Default: `soa`.
 
 En Slurm, `run_cluster.slurm` ejecuta una corrida parametrizable y `run_bodies_sweep.slurm`
 barre varios valores de `N`, guardando resultados en `results/N...`.

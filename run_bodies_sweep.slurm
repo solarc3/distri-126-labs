@@ -26,7 +26,7 @@ fi
 N="${BODIES_VALUES[${SLURM_ARRAY_TASK_ID}]}"
 
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK}"
-export OMP_PROC_BIND=true
+export OMP_PROC_BIND=spread
 export OMP_PLACES=cores
 
 WORKDIR="${SLURM_TMPDIR:-/tmp}/nbody_${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID}"

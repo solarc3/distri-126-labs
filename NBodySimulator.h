@@ -3,24 +3,34 @@
 
 #include <string>
 #include <vector>
+#include "AlignedAllocator.h"
+#include "NBodyConfig.h"
 #include "Particle.h"
 
 class NBodySimulator {
 private:
+    using AlignedDoubleVector = std::vector<double, AlignedAllocator<double, nbody_config::CACHE_LINE_BYTES>>;
+
     std::vector<Particle> particles;
     double G;
     double epsilon;
 
     // Reusable buffers for computeAccelerationsNewton3 (transposed layout [particle][thread])
-    std::vector<double> newton_ax_buffer;
-    std::vector<double> newton_ay_buffer;
+    AlignedDoubleVector newton_ax_buffer;
+    AlignedDoubleVector newton_ay_buffer;
+    std::size_t newton_row_stride = 0;
 
     // Reusable buffers for computeAccelerationsSoA
-    std::vector<double> soa_x, soa_y, soa_mass;
+    AlignedDoubleVector soa_x, soa_y, soa_mass;
+
+    void ensureSoABuffers(int n);
+    void syncSoAFromParticles(int n);
 
 public:
     NBodySimulator(double g_const, double eps);
 
+    void reserveParticles(int n);
+    void setParticles(const std::vector<Particle>& source);
     void addParticle(const Particle& p);
 
     void computeAccelerations();

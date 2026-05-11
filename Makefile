@@ -1,11 +1,22 @@
-CXX = g++
+CXX ?= g++
+
+# On the c7a.48xlarge build on the target host and keep -march=native.
+# That lets GCC/Clang emit the exact Zen 4 ISA available there, including AVX-512.
 MARCH_FLAGS ?= -march=native
-CXXFLAGS = -Wall -Wextra -O3 -fopenmp -std=c++17 $(MARCH_FLAGS)
-TEST_CXXFLAGS = -Wall -Wextra -Wno-unknown-pragmas -O3 -fopenmp -std=c++17 $(MARCH_FLAGS)
+OPT_FLAGS ?= -O3 -fno-math-errno
+EXTRA_CXXFLAGS ?=
+WARN_FLAGS ?= -Wall -Wextra
+OMP_FLAGS ?= -fopenmp
+STD_FLAGS ?= -std=c++17
+
+CXXFLAGS = $(WARN_FLAGS) $(OPT_FLAGS) $(OMP_FLAGS) $(STD_FLAGS) $(MARCH_FLAGS) $(EXTRA_CXXFLAGS)
+TEST_CXXFLAGS = $(WARN_FLAGS) -Wno-unknown-pragmas $(OPT_FLAGS) $(OMP_FLAGS) $(STD_FLAGS) $(MARCH_FLAGS) $(EXTRA_CXXFLAGS)
 
 TARGET = nbody_sim
 SRCS = main.cpp Particle.cpp NBodySimulator.cpp Integrator.cpp Benchmark.cpp MetricsCalculator.cpp Visualizer.cpp
 OBJS = $(SRCS:.cpp=.o)
+
+.PHONY: all benchmark benchmark-all analysis clean test vec-report profile
 
 all: $(TARGET)
 
@@ -29,8 +40,19 @@ analysis: $(TARGET)
 	@echo "Generando graficos de rendimiento..."
 	python3 plot_performance.py
 
+# Ejemplo:
+#   make vec-report MARCH_FLAGS="-march=native"
+# Los mensajes dicen que loops se vectorizaron y por qué otros no.
+vec-report:
+	$(MAKE) clean
+	$(MAKE) EXTRA_CXXFLAGS="-fopt-info-vec-optimized -fopt-info-vec-missed"
+
+# Build útil para perf/flamegraph: conserva símbolos y frame pointers.
+profile: EXTRA_CXXFLAGS += -g -fno-omit-frame-pointer
+profile: clean $(TARGET)
+
 clean:
-	rm -f $(OBJS) $(TARGET) *.dat run_tests *.png
+	rm -f $(OBJS) $(TARGET) *.dat run_tests *.png vec_*.log
 
 TEST_TARGET = run_tests
 TEST_SOURCES = tests/test_physics.cpp Particle.cpp NBodySimulator.cpp Integrator.cpp MetricsCalculator.cpp Visualizer.cpp

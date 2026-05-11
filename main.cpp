@@ -30,7 +30,7 @@ int main(int argc, char* argv[]) {
     bool run_benchmark_all = false;
     bool skip_serial = false;
     double serial_time_override = -1.0;
-    std::string force_mode = "classic";
+    std::string force_mode = "soa";
     if (const char* env_force_mode = std::getenv("NBODY_FORCE_MODE")) {
         force_mode = env_force_mode;
     }
@@ -100,7 +100,7 @@ int main(int argc, char* argv[]) {
                       << "  --variant-threads N    Hilos para schedules/chunks/sync (default: 4)\n"
                       << "  --skip-serial          Saltea la medicion T=1 (usar con --serial-seconds)\n"
                       << "  --serial-seconds X     Tiempo serial pre-calculado para speedup\n"
-                      << "  --force-mode M         Calculo de fuerzas: classic, newton o soa (default: classic)\n";
+                      << "  --force-mode M         Calculo de fuerzas: classic, newton o soa (default: soa)\n";
             return 0;
         } else {
             seed = static_cast<unsigned int>(std::stoul(arg));
@@ -129,6 +129,7 @@ int main(int argc, char* argv[]) {
     };
 
     std::vector<Particle> initial_particles;
+    initial_particles.reserve(static_cast<std::size_t>(num_particles));
     std::mt19937 gen(seed);
     std::uniform_real_distribution<double> pos_dist(-10.0, 10.0);
     std::uniform_real_distribution<double> vel_dist(-1.0, 1.0);
@@ -145,9 +146,7 @@ int main(int argc, char* argv[]) {
 
         double t_serial_start = omp_get_wtime();
         NBodySimulator sim(G, epsilon);
-        for (const auto& p : initial_particles) {
-            sim.addParticle(p);
-        }
+        sim.setParticles(initial_particles);
         double t_serial_end = omp_get_wtime();
 
         std::ofstream metrics_file("energy_timeseries.dat");
@@ -207,7 +206,7 @@ int main(int argc, char* argv[]) {
 
             auto make_vsim = [&]() {
                 NBodySimulator s(G, epsilon);
-                for (const auto& p : vp) s.addParticle(p);
+                s.setParticles(vp);
                 return s;
             };
 
@@ -301,7 +300,7 @@ int main(int argc, char* argv[]) {
 
         auto run_simulation = [&]() {
             NBodySimulator sim(G, epsilon);
-            for (const auto& p : initial_particles) sim.addParticle(p);
+            sim.setParticles(initial_particles);
 
             for (int step = 0; step < steps; ++step) {
                 compute_forces(sim);
@@ -370,7 +369,7 @@ int main(int argc, char* argv[]) {
                 for (int s = 0; s <= 2; ++s) {
                     auto task = [&]() {
                         NBodySimulator sim(G, epsilon);
-                        for (const auto& p : initial_particles) sim.addParticle(p);
+                        sim.setParticles(initial_particles);
                         for (int step = 0; step < steps; ++step) {
                             sim.computeAccelerations(s);
                             sim.integrate(dt);
@@ -393,7 +392,7 @@ int main(int argc, char* argv[]) {
                     for (int c : chunks) {
                         auto task = [&]() {
                             NBodySimulator sim(G, epsilon);
-                            for (const auto& p : initial_particles) sim.addParticle(p);
+                            sim.setParticles(initial_particles);
                             for (int step = 0; step < steps; ++step) {
                                 sim.computeAccelerations(s, c);
                                 sim.integrate(dt);
@@ -415,7 +414,7 @@ int main(int argc, char* argv[]) {
                 for (int y = 0; y <= 3; ++y) {
                     auto task = [&]() {
                         NBodySimulator sim(G, epsilon);
-                        for (const auto& p : initial_particles) sim.addParticle(p);
+                        sim.setParticles(initial_particles);
                         for (int step = 0; step < steps; ++step) {
                             sim.computeAccelerations();
                             sim.integrateEuler(dt, y);
@@ -437,7 +436,7 @@ int main(int argc, char* argv[]) {
                 for (int t = 0; t <= 1; ++t) {
                     auto task = [&]() {
                         NBodySimulator sim(G, epsilon);
-                        for (const auto& p : initial_particles) sim.addParticle(p);
+                        sim.setParticles(initial_particles);
                         for (int step = 0; step < steps; ++step) {
                             sim.computeAccelerations();
                             sim.processBodies(t); // 0 = task, 1 = parallel for
@@ -459,7 +458,7 @@ int main(int argc, char* argv[]) {
                 for (int m = 0; m <= 1; ++m) {
                     auto task = [&]() {
                         NBodySimulator sim(G, epsilon);
-                        for (const auto& p : initial_particles) sim.addParticle(p);
+                        sim.setParticles(initial_particles);
                         for (int step = 0; step < steps; ++step) {
                             sim.computeAccelerations();
                             double k, p_pot;
@@ -491,7 +490,7 @@ int main(int argc, char* argv[]) {
                     volatile double sink = 0.0;
                     auto task = [&]() {
                         NBodySimulator sim(G, epsilon);
-                        for (const auto& p : initial_particles) sim.addParticle(p);
+                        sim.setParticles(initial_particles);
                         for (int step = 0; step < steps; ++step) {
                             sim.computeAccelerations();
                             sim.integrate(dt);
@@ -525,7 +524,7 @@ int main(int argc, char* argv[]) {
                         volatile double sink = 0.0;
                         auto task = [&]() {
                             NBodySimulator sim(G, epsilon);
-                            for (const auto& p : initial_particles) sim.addParticle(p);
+                            sim.setParticles(initial_particles);
                             for (int step = 0; step < steps; ++step) {
                                 sim.computeAccelerations();
                                 sim.integrate(dt);

@@ -9,6 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libomp-dev \
     libgtest-dev \
     cmake \
+    numactl \
+    hwloc \
     python3 \
     python3-pip \
     ca-certificates \

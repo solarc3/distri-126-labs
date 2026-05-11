@@ -1,58 +1,77 @@
 #include "Integrator.h"
+#include "NBodyConfig.h"
 #include <omp.h>
 
 void Integrator::integrateEuler(std::vector<Particle>& particles, double dt, SyncType sync_type) {
-    int n = particles.size();
+    const int n = static_cast<int>(particles.size());
+    if (n == 0) {
+        return;
+    }
+
+    Particle* NBODY_RESTRICT p = particles.data();
 
     switch (sync_type) {
         case SyncType::ATOMIC:
-            #pragma omp parallel for
+            // Pedagogical slow path: atomics are unnecessary here because each
+            // iteration owns a distinct particle. Kept only to measure overhead.
+            #pragma omp parallel for schedule(static)
             for (int i = 0; i < n; ++i) {
-                #pragma omp atomic
-                particles[i].vx += particles[i].ax * dt;
-                #pragma omp atomic
-                particles[i].vy += particles[i].ay * dt;
-                #pragma omp atomic
-                particles[i].x += particles[i].vx * dt;
-                #pragma omp atomic
-                particles[i].y += particles[i].vy * dt;
+                const double vx_new = p[i].vx + p[i].ax * dt;
+                const double vy_new = p[i].vy + p[i].ay * dt;
+                #pragma omp atomic write
+                p[i].vx = vx_new;
+                #pragma omp atomic write
+                p[i].vy = vy_new;
+                #pragma omp atomic update
+                p[i].x += vx_new * dt;
+                #pragma omp atomic update
+                p[i].y += vy_new * dt;
             }
             break;
 
         case SyncType::CRITICAL:
-            #pragma omp parallel for
+            // Pedagogical worst-case path: serializes updates through one lock.
+            #pragma omp parallel for schedule(static)
             for (int i = 0; i < n; ++i) {
+                const double vx_new = p[i].vx + p[i].ax * dt;
+                const double vy_new = p[i].vy + p[i].ay * dt;
                 #pragma omp critical
                 {
-                    particles[i].vx += particles[i].ax * dt;
-                    particles[i].vy += particles[i].ay * dt;
-                    particles[i].x += particles[i].vx * dt;
-                    particles[i].y += particles[i].vy * dt;
+                    p[i].vx = vx_new;
+                    p[i].vy = vy_new;
+                    p[i].x += vx_new * dt;
+                    p[i].y += vy_new * dt;
                 }
             }
             break;
 
         case SyncType::NOWAIT:
+            // The parallel region still has an implicit barrier at its end; this
+            // mode exists to demonstrate `nowait`, not to improve this kernel.
             #pragma omp parallel
             {
-                #pragma omp for nowait
+                #pragma omp for simd nowait schedule(static) aligned(p:64)
                 for (int i = 0; i < n; ++i) {
-                    particles[i].vx += particles[i].ax * dt;
-                    particles[i].vy += particles[i].ay * dt;
-                    particles[i].x += particles[i].vx * dt;
-                    particles[i].y += particles[i].vy * dt;
+                    const double vx_new = p[i].vx + p[i].ax * dt;
+                    const double vy_new = p[i].vy + p[i].ay * dt;
+                    p[i].vx = vx_new;
+                    p[i].vy = vy_new;
+                    p[i].x += vx_new * dt;
+                    p[i].y += vy_new * dt;
                 }
             }
             break;
 
         case SyncType::NORMAL:
         default:
-            #pragma omp parallel for
+            #pragma omp parallel for simd schedule(static) aligned(p:64)
             for (int i = 0; i < n; ++i) {
-                particles[i].vx += particles[i].ax * dt;
-                particles[i].vy += particles[i].ay * dt;
-                particles[i].x += particles[i].vx * dt;
-                particles[i].y += particles[i].vy * dt;
+                const double vx_new = p[i].vx + p[i].ax * dt;
+                const double vy_new = p[i].vy + p[i].ay * dt;
+                p[i].vx = vx_new;
+                p[i].vy = vy_new;
+                p[i].x += vx_new * dt;
+                p[i].y += vy_new * dt;
             }
             break;
     }

@@ -1,9 +1,13 @@
 #include "Particle.h"
 #include <ostream>
 
+// Constructor por defecto: deja una partícula válida y finita.
+Particle::Particle()
+    : x(0.0), y(0.0), vx(0.0), vy(0.0), ax(0.0), ay(0.0), mass(0.0), padding{} {}
+
 // Constructor: inicializa los atributos físicos
 Particle::Particle(double start_x, double start_y, double start_vx, double start_vy, double m)
-    : x(start_x), y(start_y), vx(start_vx), vy(start_vy), ax(0.0), ay(0.0), mass(m) {}
+    : x(start_x), y(start_y), vx(start_vx), vy(start_vy), ax(0.0), ay(0.0), mass(m), padding{} {}
 
 // Reiniciar la aceleración antes de calcular las nuevas fuerzas
 void Particle::resetAcceleration() {
