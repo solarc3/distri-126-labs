@@ -11,9 +11,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     python3 \
     python3-pip \
-    awscli \
     ca-certificates \
+    curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" \
+    && unzip awscliv2.zip \
+    && ./aws/install \
+    && rm -rf awscliv2.zip aws/
 
 RUN pip3 install --no-cache-dir numpy matplotlib
 
