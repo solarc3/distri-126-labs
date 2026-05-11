@@ -1,6 +1,7 @@
 CXX = g++
-CXXFLAGS = -Wall -Wextra -O3 -fopenmp -std=c++17
-TEST_CXXFLAGS = -Wall -Wextra -Wno-unknown-pragmas -O3 -fopenmp -std=c++17
+MARCH_FLAGS ?= -march=native
+CXXFLAGS = -Wall -Wextra -O3 -fopenmp -std=c++17 $(MARCH_FLAGS)
+TEST_CXXFLAGS = -Wall -Wextra -Wno-unknown-pragmas -O3 -fopenmp -std=c++17 $(MARCH_FLAGS)
 
 TARGET = nbody_sim
 SRCS = main.cpp Particle.cpp NBodySimulator.cpp Integrator.cpp Benchmark.cpp MetricsCalculator.cpp Visualizer.cpp

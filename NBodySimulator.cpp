@@ -166,15 +166,28 @@ void NBodySimulator::computeAccelerationsNewton3() {
     }
 
     const int max_threads = omp_get_max_threads();
-    std::vector<double> ax_private(static_cast<size_t>(max_threads) * n, 0.0);
-    std::vector<double> ay_private(static_cast<size_t>(max_threads) * n, 0.0);
+    const size_t buf_size = static_cast<size_t>(max_threads) * n;
 
+    // Reuse buffers across calls: resize only when n or max_threads changes
+    if (newton_ax_buffer.size() != buf_size) {
+        newton_ax_buffer.assign(buf_size, 0.0);
+        newton_ay_buffer.assign(buf_size, 0.0);
+    } else {
+        // Zero-fill without reallocation — uses cache-friendly streaming stores
+        std::fill(newton_ax_buffer.begin(), newton_ax_buffer.end(), 0.0);
+        std::fill(newton_ay_buffer.begin(), newton_ay_buffer.end(), 0.0);
+    }
+
+    // Layout: [thread][particle] — avoids false sharing during force computation
+    // because different threads write to disjoint cache lines (stride-n apart)
+    // The reduction at the end has stride-n access but it's O(n*T) vs O(n²) forces
     #pragma omp parallel
     {
         const int tid = omp_get_thread_num();
-        double* ax = ax_private.data() + static_cast<size_t>(tid) * n;
-        double* ay = ay_private.data() + static_cast<size_t>(tid) * n;
+        double* ax = newton_ax_buffer.data() + static_cast<size_t>(tid) * n;
+        double* ay = newton_ay_buffer.data() + static_cast<size_t>(tid) * n;
 
+        // dynamic,8 balances the triangular work: inner loop length = n-1, n-2, ..., 1
         #pragma omp for schedule(dynamic, 8)
         for (int i = 0; i < n - 1; ++i) {
             const double xi = particles[i].x;
@@ -202,6 +215,8 @@ void NBodySimulator::computeAccelerationsNewton3() {
         }
     }
 
+    // Reduction: sum per-thread contributions into particles[]
+    // Stride-n access pattern is unavoidable but: O(n * T) ~ 57M ops vs O(n²) ~ 45B ops
     #pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
         double ax_total = 0.0;
@@ -209,8 +224,8 @@ void NBodySimulator::computeAccelerationsNewton3() {
 
         for (int t = 0; t < max_threads; ++t) {
             const size_t idx = static_cast<size_t>(t) * n + i;
-            ax_total += ax_private[idx];
-            ay_total += ay_private[idx];
+            ax_total += newton_ax_buffer[idx];
+            ay_total += newton_ay_buffer[idx];
         }
 
         particles[i].ax = ax_total;
@@ -224,15 +239,18 @@ void NBodySimulator::computeAccelerationsSoA() {
         return;
     }
 
-    std::vector<double> x(n);
-    std::vector<double> y(n);
-    std::vector<double> mass(n);
+    // Reuse buffers across calls: resize only if needed
+    if (static_cast<int>(soa_x.size()) != n) {
+        soa_x.resize(n);
+        soa_y.resize(n);
+        soa_mass.resize(n);
+    }
 
     #pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
-        x[i] = particles[i].x;
-        y[i] = particles[i].y;
-        mass[i] = particles[i].mass;
+        soa_x[i] = particles[i].x;
+        soa_y[i] = particles[i].y;
+        soa_mass[i] = particles[i].mass;
     }
 
     const double eps2 = epsilon * epsilon;
@@ -242,17 +260,17 @@ void NBodySimulator::computeAccelerationsSoA() {
     for (int i = 0; i < n; ++i) {
         double ax_local = 0.0;
         double ay_local = 0.0;
-        const double xi = x[i];
-        const double yi = y[i];
+        const double xi = soa_x[i];
+        const double yi = soa_y[i];
 
         #pragma omp simd reduction(+:ax_local, ay_local)
         for (int j = 0; j < n; ++j) {
-            const double dx = x[j] - xi;
-            const double dy = y[j] - yi;
+            const double dx = soa_x[j] - xi;
+            const double dy = soa_y[j] - yi;
             const double distSq = dx * dx + dy * dy + eps2;
             const double invDist = 1.0 / std::sqrt(distSq);
             const double invDist3 = invDist * invDist * invDist;
-            const double a_mag = g * mass[j] * invDist3;
+            const double a_mag = g * soa_mass[j] * invDist3;
 
             ax_local += a_mag * dx;
             ay_local += a_mag * dy;

@@ -11,6 +11,13 @@ private:
     double G;
     double epsilon;
 
+    // Reusable buffers for computeAccelerationsNewton3 (transposed layout [particle][thread])
+    std::vector<double> newton_ax_buffer;
+    std::vector<double> newton_ay_buffer;
+
+    // Reusable buffers for computeAccelerationsSoA
+    std::vector<double> soa_x, soa_y, soa_mass;
+
 public:
     NBodySimulator(double g_const, double eps);
 
