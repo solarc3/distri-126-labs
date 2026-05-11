@@ -28,6 +28,8 @@ int main(int argc, char* argv[]) {
     unsigned int seed = 42;
     bool run_benchmark = false;
     bool run_benchmark_all = false;
+    bool skip_serial = false;
+    double serial_time_override = -1.0;
     for (int i = 1; i < argc; ++i) {
         std::string arg(argv[i]);
         auto require_value = [&](const std::string& option) -> std::string {
@@ -74,6 +76,10 @@ int main(int argc, char* argv[]) {
                 if (comma == std::string::npos) break;
                 start = comma + 1;
             }
+        } else if (arg == "--skip-serial") {
+            skip_serial = true;
+        } else if (arg == "--serial-seconds") {
+            serial_time_override = std::stod(require_value(arg));
         } else if (arg == "--help" || arg == "-h") {
             std::cout << "Uso: ./nbody_sim [--benchmark|--benchmark-all] [opciones]\n"
                       << "Opciones:\n"
@@ -85,7 +91,9 @@ int main(int argc, char* argv[]) {
                       << "  --repetitions N        Repeticiones benchmark principal (default: 10)\n"
                       << "  --extra-repetitions N  Repeticiones benchmarks extra (default: 3)\n"
                       << "  --threads LISTA        Hilos a medir, separados por coma (default: 2,4,8,16)\n"
-                      << "  --variant-threads N    Hilos para schedules/chunks/sync (default: 4)\n";
+                      << "  --variant-threads N    Hilos para schedules/chunks/sync (default: 4)\n"
+                      << "  --skip-serial          Saltea la medicion T=1 (usar con --serial-seconds)\n"
+                      << "  --serial-seconds X     Tiempo serial pre-calculado para speedup\n";
             return 0;
         } else {
             seed = static_cast<unsigned int>(std::stoul(arg));
@@ -280,10 +288,17 @@ int main(int argc, char* argv[]) {
             }
         };
 
-        std::cout << "Midiendo linea base secuencial (1 hilo)..." << std::endl;
-        omp_set_num_threads(1);
-        auto serial_stats = bench.measureExecutionTime(run_simulation);
-        std::cout << "Tiempo base: " << serial_stats.first << "s (+/- " << serial_stats.second << "s)\n";
+        std::pair<double, double> serial_stats;
+
+        if (skip_serial && serial_time_override > 0.0) {
+            std::cout << "Usando tiempo serial pre-calculado: " << serial_time_override << "s" << std::endl;
+            serial_stats = {serial_time_override, 0.0};
+        } else {
+            std::cout << "Midiendo linea base secuencial (1 hilo)..." << std::endl;
+            omp_set_num_threads(1);
+            serial_stats = bench.measureExecutionTime(run_simulation);
+            std::cout << "Tiempo base: " << serial_stats.first << "s (+/- " << serial_stats.second << "s)\n";
+        }
 
         std::vector<BenchmarkResult> all_results;
 
