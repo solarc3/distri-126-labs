@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstddef>
+#include <cstdlib>
 #include <iostream>
 #include <random>
 #include <omp.h>
@@ -11,6 +11,15 @@
 namespace {
 inline int clamp_positive_chunk(int chunk_size) noexcept {
     return chunk_size > 0 ? chunk_size : 1;
+}
+
+inline omp_sched_t to_omp_schedule(int schedule_type) noexcept {
+    switch (schedule_type) {
+        case 1: return omp_sched_dynamic;
+        case 2: return omp_sched_guided;
+        case 0:
+        default: return omp_sched_static;
+    }
 }
 }  // namespace
 
@@ -31,9 +40,9 @@ void NBodySimulator::setParticles(const std::vector<Particle>& source) {
     Particle* NBODY_RESTRICT dst = particles.data();
 
     // Parallel copy intentionally first-touches the destination vector with the
-    // same OpenMP placement that will later update it. On a two-NUMA-domain
-    // c7a.48xlarge this avoids placing the whole particle array on the thread
-    // that happened to build the simulator object.
+    // same OpenMP placement that will later update it. On c7a.48xlarge this
+    // helps avoid placing the whole particle array on the NUMA node of the
+    // thread that happened to build the simulator object.
     #pragma omp parallel for schedule(static) if(n > 2048)
     for (int i = 0; i < n; ++i) {
         dst[i] = src[i];
@@ -72,9 +81,8 @@ void NBodySimulator::syncSoAFromParticles(int n) {
     double* NBODY_RESTRICT y = soa_y.data();
     double* NBODY_RESTRICT mass = soa_mass.data();
 
-    // Scatter AoS -> SoA.  The destination arrays are 64-byte aligned and
-    // contiguous, so the stores are cache-line friendly; the reads are strided
-    // because Particle is AoS/padded.
+    // AoS -> SoA. The destination arrays are contiguous and 64-byte aligned;
+    // this is the layout consumed by the force kernel.
     #pragma omp parallel for simd schedule(static) aligned(p, x, y, mass:64)
     for (int i = 0; i < n; ++i) {
         x[i] = p[i].x;
@@ -84,313 +92,22 @@ void NBodySimulator::syncSoAFromParticles(int n) {
 }
 
 void NBodySimulator::computeAccelerations() {
-    computeAccelerations(0);
+    computeAccelerationsSoAImpl(0, 0, false);
 }
 
 void NBodySimulator::computeAccelerations(int schedule_type) {
-    const int n = static_cast<int>(particles.size());
-    if (n == 0) {
-        return;
-    }
-
-    const double eps2 = epsilon * epsilon;
-    const double g = G;
-    Particle* NBODY_RESTRICT p = particles.data();
-
-    auto compute_particle = [&](int i) {
-        double ax_local = 0.0;
-        double ay_local = 0.0;
-        const double xi = p[i].x;
-        const double yi = p[i].y;
-
-        if (eps2 > 0.0) {
-            // No branch inside the hot loop: the self term is mathematically
-            // zero because dx=dy=0, and softening prevents division by zero.
-            #pragma omp simd aligned(p:64) reduction(+:ax_local, ay_local)
-            for (int j = 0; j < n; ++j) {
-                const double dx = p[j].x - xi;
-                const double dy = p[j].y - yi;
-                const double distSq = dx * dx + dy * dy + eps2;
-                const double invDist = 1.0 / std::sqrt(distSq);
-                const double invDist3 = invDist * invDist * invDist;
-                const double a_mag = g * p[j].mass * invDist3;
-
-                ax_local += a_mag * dx;
-                ay_local += a_mag * dy;
-            }
-        } else {
-            // Exact-zero softening needs to skip j==i.  Splitting the loop keeps
-            // both ranges branch-free and SIMD-safe.
-            #pragma omp simd aligned(p:64) reduction(+:ax_local, ay_local)
-            for (int j = 0; j < i; ++j) {
-                const double dx = p[j].x - xi;
-                const double dy = p[j].y - yi;
-                const double distSq = dx * dx + dy * dy;
-                const double invDist = 1.0 / std::sqrt(distSq);
-                const double invDist3 = invDist * invDist * invDist;
-                const double a_mag = g * p[j].mass * invDist3;
-
-                ax_local += a_mag * dx;
-                ay_local += a_mag * dy;
-            }
-            #pragma omp simd aligned(p:64) reduction(+:ax_local, ay_local)
-            for (int j = i + 1; j < n; ++j) {
-                const double dx = p[j].x - xi;
-                const double dy = p[j].y - yi;
-                const double distSq = dx * dx + dy * dy;
-                const double invDist = 1.0 / std::sqrt(distSq);
-                const double invDist3 = invDist * invDist * invDist;
-                const double a_mag = g * p[j].mass * invDist3;
-
-                ax_local += a_mag * dx;
-                ay_local += a_mag * dy;
-            }
-        }
-
-        p[i].ax = ax_local;
-        p[i].ay = ay_local;
-    };
-
-    switch (schedule_type) {
-        case 0: // static: best default; every i performs n interactions.
-            #pragma omp parallel for schedule(static)
-            for (int i = 0; i < n; ++i) {
-                compute_particle(i);
-            }
-            break;
-        case 1: // dynamic: useful only for experiments; higher scheduler cost.
-            #pragma omp parallel for schedule(dynamic)
-            for (int i = 0; i < n; ++i) {
-                compute_particle(i);
-            }
-            break;
-        case 2: // guided: useful for experiments; lower overhead than dynamic.
-            #pragma omp parallel for schedule(guided)
-            for (int i = 0; i < n; ++i) {
-                compute_particle(i);
-            }
-            break;
-        default:
-            computeAccelerations(0);
-            return;
-    }
+    computeAccelerationsSoAImpl(schedule_type, 0, false);
 }
 
 void NBodySimulator::computeAccelerations(int schedule_type, int chunk_size) {
-    const int n = static_cast<int>(particles.size());
-    if (n == 0) {
-        return;
-    }
-
-    const int chunk = clamp_positive_chunk(chunk_size);
-    const double eps2 = epsilon * epsilon;
-    const double g = G;
-    Particle* NBODY_RESTRICT p = particles.data();
-
-    auto compute_particle = [&](int i) {
-        double ax_local = 0.0;
-        double ay_local = 0.0;
-        const double xi = p[i].x;
-        const double yi = p[i].y;
-
-        if (eps2 > 0.0) {
-            #pragma omp simd aligned(p:64) reduction(+:ax_local, ay_local)
-            for (int j = 0; j < n; ++j) {
-                const double dx = p[j].x - xi;
-                const double dy = p[j].y - yi;
-                const double distSq = dx * dx + dy * dy + eps2;
-                const double invDist = 1.0 / std::sqrt(distSq);
-                const double invDist3 = invDist * invDist * invDist;
-                const double a_mag = g * p[j].mass * invDist3;
-
-                ax_local += a_mag * dx;
-                ay_local += a_mag * dy;
-            }
-        } else {
-            #pragma omp simd aligned(p:64) reduction(+:ax_local, ay_local)
-            for (int j = 0; j < i; ++j) {
-                const double dx = p[j].x - xi;
-                const double dy = p[j].y - yi;
-                const double distSq = dx * dx + dy * dy;
-                const double invDist = 1.0 / std::sqrt(distSq);
-                const double invDist3 = invDist * invDist * invDist;
-                const double a_mag = g * p[j].mass * invDist3;
-
-                ax_local += a_mag * dx;
-                ay_local += a_mag * dy;
-            }
-            #pragma omp simd aligned(p:64) reduction(+:ax_local, ay_local)
-            for (int j = i + 1; j < n; ++j) {
-                const double dx = p[j].x - xi;
-                const double dy = p[j].y - yi;
-                const double distSq = dx * dx + dy * dy;
-                const double invDist = 1.0 / std::sqrt(distSq);
-                const double invDist3 = invDist * invDist * invDist;
-                const double a_mag = g * p[j].mass * invDist3;
-
-                ax_local += a_mag * dx;
-                ay_local += a_mag * dy;
-            }
-        }
-
-        p[i].ax = ax_local;
-        p[i].ay = ay_local;
-    };
-
-    switch (schedule_type) {
-        case 0:
-            #pragma omp parallel for schedule(static, chunk)
-            for (int i = 0; i < n; ++i) {
-                compute_particle(i);
-            }
-            break;
-        case 1:
-            #pragma omp parallel for schedule(dynamic, chunk)
-            for (int i = 0; i < n; ++i) {
-                compute_particle(i);
-            }
-            break;
-        case 2:
-            #pragma omp parallel for schedule(guided, chunk)
-            for (int i = 0; i < n; ++i) {
-                compute_particle(i);
-            }
-            break;
-        default:
-            computeAccelerations(0);
-            return;
-    }
-}
-
-void NBodySimulator::computeAccelerationsCollapse() {
-    const int n = static_cast<int>(particles.size());
-    if (n == 0) {
-        return;
-    }
-
-    Particle* NBODY_RESTRICT p = particles.data();
-    const double eps2 = epsilon * epsilon;
-    const double g = G;
-
-    #pragma omp parallel for schedule(static)
-    for (int i = 0; i < n; ++i) {
-        p[i].resetAcceleration();
-    }
-
-    // This overload is intentionally kept as a collapse/atomic demonstration.
-    // It is not the fast kernel: atomics serialize many updates to the same
-    // particle, and the collapsed i,j space loses the natural private reduction
-    // over j used by computeAccelerations() and computeAccelerationsSoA().
-    #pragma omp parallel for schedule(dynamic) collapse(2)
-    for (int i = 0; i < n; ++i) {
-        for (int j = 0; j < n; ++j) {
-            if (i == j && eps2 == 0.0) continue;
-
-            const double dx = p[j].x - p[i].x;
-            const double dy = p[j].y - p[i].y;
-            const double distSq = dx * dx + dy * dy + eps2;
-            const double invDist = 1.0 / std::sqrt(distSq);
-            const double invDist3 = invDist * invDist * invDist;
-            const double a_mag = g * p[j].mass * invDist3;
-
-            #pragma omp atomic update
-            p[i].ax += a_mag * dx;
-            #pragma omp atomic update
-            p[i].ay += a_mag * dy;
-        }
-    }
-}
-
-void NBodySimulator::computeAccelerationsNewton3() {
-    const int n = static_cast<int>(particles.size());
-    if (n == 0) {
-        return;
-    }
-
-    syncSoAFromParticles(n);
-
-    const int max_threads = omp_get_max_threads();
-    newton_row_stride = nbody_config::round_up_to_cache_line_doubles(static_cast<std::size_t>(n));
-    const std::size_t buf_size = static_cast<std::size_t>(max_threads) * newton_row_stride;
-
-    if (newton_ax_buffer.size() != buf_size) {
-        newton_ax_buffer.resize(buf_size);
-        newton_ay_buffer.resize(buf_size);
-    }
-
-    const double eps2 = epsilon * epsilon;
-    const double g = G;
-    const double* NBODY_RESTRICT x = soa_x.data();
-    const double* NBODY_RESTRICT y = soa_y.data();
-    const double* NBODY_RESTRICT mass = soa_mass.data();
-    double* NBODY_RESTRICT ax_base = newton_ax_buffer.data();
-    double* NBODY_RESTRICT ay_base = newton_ay_buffer.data();
-
-    // Layout: [thread][particle], with each row rounded up to 64 bytes.
-    // Each thread writes only its own row, so there is no atomic and no false
-    // sharing.  Zeroing happens inside the parallel region to first-touch pages
-    // on the NUMA domain of the owning thread.
-    #pragma omp parallel
-    {
-        const int tid = omp_get_thread_num();
-        double* NBODY_RESTRICT ax = ax_base + static_cast<std::size_t>(tid) * newton_row_stride;
-        double* NBODY_RESTRICT ay = ay_base + static_cast<std::size_t>(tid) * newton_row_stride;
-
-        std::fill(ax, ax + n, 0.0);
-        std::fill(ay, ay + n, 0.0);
-
-        #pragma omp for schedule(dynamic, nbody_config::NEWTON_CHUNK)
-        for (int i = 0; i < n - 1; ++i) {
-            const double xi = x[i];
-            const double yi = y[i];
-            const double mi = mass[i];
-            double axi = 0.0;
-            double ayi = 0.0;
-
-            // j is contiguous in the SoA arrays and in the per-thread output row.
-            // The only scalar recurrence is the reduction for particle i.
-            #pragma omp simd aligned(x, y, mass, ax, ay:64) reduction(+:axi, ayi)
-            for (int j = i + 1; j < n; ++j) {
-                const double dx = x[j] - xi;
-                const double dy = y[j] - yi;
-                const double distSq = dx * dx + dy * dy + eps2;
-                const double invDist = 1.0 / std::sqrt(distSq);
-                const double invDist3 = invDist * invDist * invDist;
-                const double common = g * invDist3;
-
-                axi += common * mass[j] * dx;
-                ayi += common * mass[j] * dy;
-                ax[j] += -common * mi * dx;
-                ay[j] += -common * mi * dy;
-            }
-
-            ax[i] += axi;
-            ay[i] += ayi;
-        }
-    }
-
-    Particle* NBODY_RESTRICT p = particles.data();
-
-    // Reduction: O(n * threads) strided reads.  It is intentionally separated
-    // from the O(n^2) force loop to keep force updates race-free and atomic-free.
-    #pragma omp parallel for schedule(static)
-    for (int i = 0; i < n; ++i) {
-        double ax_total = 0.0;
-        double ay_total = 0.0;
-
-        #pragma omp simd aligned(ax_base, ay_base:64) reduction(+:ax_total, ay_total)
-        for (int t = 0; t < max_threads; ++t) {
-            const std::size_t idx = static_cast<std::size_t>(t) * newton_row_stride + static_cast<std::size_t>(i);
-            ax_total += ax_base[idx];
-            ay_total += ay_base[idx];
-        }
-
-        p[i].ax = ax_total;
-        p[i].ay = ay_total;
-    }
+    computeAccelerationsSoAImpl(schedule_type, clamp_positive_chunk(chunk_size), true);
 }
 
 void NBodySimulator::computeAccelerationsSoA() {
+    computeAccelerationsSoAImpl(0, 0, false);
+}
+
+void NBodySimulator::computeAccelerationsSoAImpl(int schedule_type, int chunk_size, bool use_chunk) {
     const int n = static_cast<int>(particles.size());
     if (n == 0) {
         return;
@@ -404,12 +121,19 @@ void NBodySimulator::computeAccelerationsSoA() {
     const double* NBODY_RESTRICT y = soa_y.data();
     const double* NBODY_RESTRICT mass = soa_mass.data();
     Particle* NBODY_RESTRICT p = particles.data();
+    const bool default_static = (schedule_type == 0 && !use_chunk);
+
+    omp_sched_t previous_kind = omp_sched_static;
+    int previous_chunk = 0;
+    if (!default_static) {
+        omp_get_schedule(&previous_kind, &previous_chunk);
+        omp_set_schedule(to_omp_schedule(schedule_type), use_chunk ? chunk_size : 0);
+    }
 
     if (eps2 == 0.0) {
-        // Rare path: exact zero softening. Keep it branch-free by splitting the
-        // self interaction out of the SIMD loops.
-        #pragma omp parallel for schedule(static)
-        for (int i = 0; i < n; ++i) {
+        // Rare path: exact zero softening. The self interaction must be skipped;
+        // splitting j keeps the vectorized loops branch-free and finite.
+        auto compute_i = [&](int i) {
             double ax_local = 0.0;
             double ay_local = 0.0;
             const double xi = x[i];
@@ -426,6 +150,7 @@ void NBodySimulator::computeAccelerationsSoA() {
                 ax_local += a_mag * dx;
                 ay_local += a_mag * dy;
             }
+
             #pragma omp simd aligned(x, y, mass:64) reduction(+:ax_local, ay_local)
             for (int j = i + 1; j < n; ++j) {
                 const double dx = x[j] - xi;
@@ -440,6 +165,19 @@ void NBodySimulator::computeAccelerationsSoA() {
 
             p[i].ax = ax_local;
             p[i].ay = ay_local;
+        };
+
+        if (default_static) {
+            #pragma omp parallel for schedule(static)
+            for (int i = 0; i < n; ++i) {
+                compute_i(i);
+            }
+        } else {
+            #pragma omp parallel for schedule(runtime)
+            for (int i = 0; i < n; ++i) {
+                compute_i(i);
+            }
+            omp_set_schedule(previous_kind, previous_chunk);
         }
         return;
     }
@@ -450,16 +188,14 @@ void NBodySimulator::computeAccelerationsSoA() {
     static_assert(j_tile > 0, "SOA_J_TILE must be positive");
 
     // Cache blocking: a j tile of x/y/mass is reused for several i particles
-    // before moving to the next tile. With the defaults, 3 * 4096 * 8 = 96 KiB,
-    // fitting comfortably in Zen 4's private L2 while leaving room for code and
-    // temporary data.  For each i, j is still visited in increasing order.
+    // before moving to the next tile. Defaults: 3 * 4096 * 8 = 96 KiB, which is
+    // small enough for private cache while still amortizing the tile loads.
     #pragma omp parallel
     {
         std::array<double, i_tile> ax_tile{};
         std::array<double, i_tile> ay_tile{};
 
-        #pragma omp for schedule(static)
-        for (int ib = 0; ib < n; ib += i_tile) {
+        auto compute_ib = [&](int ib) {
             const int i_end = std::min(ib + i_tile, n);
             const int tile_count = i_end - ib;
 
@@ -501,7 +237,23 @@ void NBodySimulator::computeAccelerationsSoA() {
                 p[i].ax = ax_tile[static_cast<std::size_t>(ii)];
                 p[i].ay = ay_tile[static_cast<std::size_t>(ii)];
             }
+        };
+
+        if (default_static) {
+            #pragma omp for schedule(static)
+            for (int ib = 0; ib < n; ib += i_tile) {
+                compute_ib(ib);
+            }
+        } else {
+            #pragma omp for schedule(runtime)
+            for (int ib = 0; ib < n; ib += i_tile) {
+                compute_ib(ib);
+            }
         }
+    }
+
+    if (!default_static) {
+        omp_set_schedule(previous_kind, previous_chunk);
     }
 }
 

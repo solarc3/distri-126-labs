@@ -54,10 +54,9 @@ Al fijar `G = 1.0`, se define un sistema adimensional coherente: todas las posic
 
 | Clausula / Directiva | Archivo | Metodo |
 |---------------------|---------|--------|
-| `schedule(static)` | `NBodySimulator.cpp` | `computeAccelerations()` (defecto classic) |
+| `schedule(static)` | `NBodySimulator.cpp` | `computeAccelerations()` / `computeAccelerationsSoA()` |
 | `schedule(static)` / `schedule(dynamic)` / `schedule(guided)` | `NBodySimulator.cpp` | `computeAccelerations(int)` |
 | `schedule(static, chunk)` / `schedule(dynamic, chunk)` / `schedule(guided, chunk)` | `NBodySimulator.cpp` | `computeAccelerations(int, int)` |
-| `collapse(2)` | `NBodySimulator.cpp` | `computeAccelerationsCollapse()` |
 | `schedule(dynamic, 8)` + `reduction(min:)` + `simd` | `MetricsCalculator.cpp` | `calculateMinDistance()` |
 | `parallel for simd` + `reduction(+:)` | `MetricsCalculator.cpp` | `calculateTotalMomentum()`, `calculateCenterOfMass()`, `calculateRMSRadius()` |
 | `parallel for simd` + `reduction(+:)` | `NBodySimulator.cpp` | `calculateEnergy()` y bucles de fuerza |
@@ -95,7 +94,7 @@ make clean && make
 
 ### Nota de rendimiento c7a / SIMD
 
-La implementacion actual tiene tres modos de calculo de fuerzas: `classic`, `newton` y `soa`. El modo por defecto es `soa`, porque separa `x`, `y` y `mass` en arreglos contiguos alineados a 64 bytes y facilita SIMD/cache blocking. Para una explicacion detallada de vectorizacion, AVX-512, cache, false sharing, NUMA y herramientas de profiling, ver [`PERFORMANCE_NOTES.md`](PERFORMANCE_NOTES.md).
+La implementacion actual conserva solo el kernel de fuerzas `soa`, que fue el ganador en las pruebas sobre c7a.48xlarge. Se separan `x`, `y` y `mass` en arreglos contiguos alineados a 64 bytes y se usa bloqueo de cache para favorecer SIMD/cache blocking. Para una explicacion detallada de vectorizacion, AVX-512, cache, false sharing, NUMA y herramientas de profiling, ver [`PERFORMANCE_NOTES.md`](PERFORMANCE_NOTES.md).
 
 ### Parametros de benchmark
 Los modos de ejecucion aceptan parametros para reproducir corridas mas largas o barrer tamanos
@@ -116,7 +115,7 @@ Opciones disponibles:
 - `--extra-repetitions N`: repeticiones para schedules, chunks y sincronizacion.
 - `--threads 1,2,4,8,16`: lista de hilos a medir.
 - `--variant-threads N`: hilos usados en benchmarks de variantes OpenMP.
-- `--force-mode classic|newton|soa`: selecciona el kernel de fuerza. Default: `soa`.
+- `--force-mode soa`: se mantiene por compatibilidad con scripts; esta version limpia solo incluye el kernel SoA. Default: `soa`.
 
 En Slurm, `run_cluster.slurm` ejecuta una corrida parametrizable y `run_bodies_sweep.slurm`
 barre varios valores de `N`, guardando resultados en `results/N...`.

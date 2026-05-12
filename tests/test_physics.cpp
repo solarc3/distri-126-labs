@@ -222,30 +222,6 @@ TEST(OpenMPOverloadTest, SchedulesWithChunkProduceSameResult) {
     }
 }
 
-TEST(OpenMPOverloadTest, CollapseProducesFiniteResult) {
-    auto sim = makeTestSim();
-    sim.computeAccelerationsCollapse();
-    for (const auto& p : sim.getParticles()) {
-        EXPECT_TRUE(std::isfinite(p.getAx()));
-        EXPECT_TRUE(std::isfinite(p.getAy()));
-    }
-}
-
-TEST(OpenMPOverloadTest, Newton3ProducesSameResult) {
-    auto ref = makeTestSim(1.0, 0.1, 80);
-    ref.computeAccelerations();
-    const auto& rp = ref.getParticles();
-
-    auto sim = makeTestSim(1.0, 0.1, 80);
-    sim.computeAccelerationsNewton3();
-    const auto& sp = sim.getParticles();
-
-    for (size_t i = 0; i < sp.size(); ++i) {
-        EXPECT_NEAR(rp[i].getAx(), sp[i].getAx(), 1e-9) << "particle " << i;
-        EXPECT_NEAR(rp[i].getAy(), sp[i].getAy(), 1e-9) << "particle " << i;
-    }
-}
-
 TEST(OpenMPOverloadTest, SoAProducesSameResult) {
     auto ref = makeTestSim(1.0, 0.1, 80);
     ref.computeAccelerations();

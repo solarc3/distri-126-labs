@@ -18,17 +18,6 @@ constexpr int SOA_J_TILE = 4096;
 #else
 constexpr int SOA_J_TILE = NBODY_SOA_J_TILE;
 #endif
-
-#ifndef NBODY_NEWTON_CHUNK
-constexpr int NEWTON_CHUNK = 8;
-#else
-constexpr int NEWTON_CHUNK = NBODY_NEWTON_CHUNK;
-#endif
-
-inline std::size_t round_up_to_cache_line_doubles(std::size_t n) noexcept {
-    constexpr std::size_t q = DOUBLES_PER_CACHE_LINE;
-    return ((n + q - 1) / q) * q;
-}
 }  // namespace nbody_config
 
 #if defined(__GNUC__) || defined(__clang__)

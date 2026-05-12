@@ -79,9 +79,8 @@ double MetricsCalculator::calculateMinDistance(const std::vector<Particle>& part
     double min_dist_sq = std::numeric_limits<double>::max();
     const Particle* NBODY_RESTRICT p = particles.data();
 
-    // Pair loop i<j: half the work of the old i!=j collapse(2) version and no
-    // branch in the hot loop. The outer loop is triangular, so dynamic chunks
-    // keep load balance without atomics.
+    // Pair loop i<j: visits each pair once and keeps the hot loop branch-free.
+    // The outer loop is triangular, so dynamic chunks keep load balance.
     #pragma omp parallel for schedule(dynamic, 8) reduction(min:min_dist_sq)
     for (int i = 0; i < N - 1; ++i) {
         const double xi = p[i].x;

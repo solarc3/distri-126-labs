@@ -100,7 +100,7 @@ int main(int argc, char* argv[]) {
                       << "  --variant-threads N    Hilos para schedules/chunks/sync (default: 4)\n"
                       << "  --skip-serial          Saltea la medicion T=1 (usar con --serial-seconds)\n"
                       << "  --serial-seconds X     Tiempo serial pre-calculado para speedup\n"
-                      << "  --force-mode M         Calculo de fuerzas: classic, newton o soa (default: soa)\n";
+                      << "  --force-mode M         Calculo de fuerzas disponible: soa (default: soa)\n";
             return 0;
         } else {
             seed = static_cast<unsigned int>(std::stoul(arg));
@@ -113,19 +113,13 @@ int main(int argc, char* argv[]) {
         std::cerr << "Error: parametros invalidos. Use --help para ver opciones." << std::endl;
         return 1;
     }
-    if (force_mode != "classic" && force_mode != "newton" && force_mode != "soa") {
-        std::cerr << "Error: --force-mode debe ser classic, newton o soa." << std::endl;
+    if (force_mode != "soa") {
+        std::cerr << "Error: esta version limpia solo incluye --force-mode soa." << std::endl;
         return 1;
     }
 
     auto compute_forces = [&](NBodySimulator& sim) {
-        if (force_mode == "newton") {
-            sim.computeAccelerationsNewton3();
-        } else if (force_mode == "soa") {
-            sim.computeAccelerationsSoA();
-        } else {
-            sim.computeAccelerations();
-        }
+        sim.computeAccelerationsSoA();
     };
 
     std::vector<Particle> initial_particles;
@@ -226,15 +220,6 @@ int main(int argc, char* argv[]) {
                 for (const auto& p : sim.getParticles())
                     if (!std::isfinite(p.getAx()) || !std::isfinite(p.getAy())) { ok = false; break; }
                 std::cout << "  computeAccelerations(schedule=" << s << ", chunk=25): " << (ok ? "OK" : "FAIL") << std::endl;
-            }
-
-            {
-                auto sim = make_vsim();
-                sim.computeAccelerationsCollapse();
-                bool ok = true;
-                for (const auto& p : sim.getParticles())
-                    if (!std::isfinite(p.getAx()) || !std::isfinite(p.getAy())) { ok = false; break; }
-                std::cout << "  computeAccelerationsCollapse(): " << (ok ? "OK" : "FAIL") << std::endl;
             }
 
             const char* snames[] = {"ATOMIC", "CRITICAL", "NOWAIT", "NORMAL"};

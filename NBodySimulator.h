@@ -15,16 +15,13 @@ private:
     double G;
     double epsilon;
 
-    // Reusable buffers for computeAccelerationsNewton3 (transposed layout [particle][thread])
-    AlignedDoubleVector newton_ax_buffer;
-    AlignedDoubleVector newton_ay_buffer;
-    std::size_t newton_row_stride = 0;
-
-    // Reusable buffers for computeAccelerationsSoA
+    // Reusable Structure-of-Arrays buffers for the force kernel.
+    // They are 64-byte aligned so the inner loop can safely use aligned SIMD loads.
     AlignedDoubleVector soa_x, soa_y, soa_mass;
 
     void ensureSoABuffers(int n);
     void syncSoAFromParticles(int n);
+    void computeAccelerationsSoAImpl(int schedule_type, int chunk_size, bool use_chunk);
 
 public:
     NBodySimulator(double g_const, double eps);
@@ -33,11 +30,11 @@ public:
     void setParticles(const std::vector<Particle>& source);
     void addParticle(const Particle& p);
 
+    // Force calculation. The project keeps the schedule/chunk overloads because
+    // the benchmark suite uses them, but all of them execute the same SoA kernel.
     void computeAccelerations();
     void computeAccelerations(int schedule_type);
     void computeAccelerations(int schedule_type, int chunk_size);
-    void computeAccelerationsCollapse();
-    void computeAccelerationsNewton3();
     void computeAccelerationsSoA();
 
     void integrate(double dt);
