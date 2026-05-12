@@ -4,11 +4,11 @@
 
 | Miembro        | Rol / Contribucion                        |
 |----------------|-------------------------------------------|
-| **[Nombre]**   | Modelo y datos |
-| **[Nombre]**   | Nucleo paralelo |
-| **[Nombre]**   | Integracion y fisica |
-| **[Nombre]**   | Metricas y benchmarks |
-| **[Nombre]**   | Calidad, CI y visualizacion |
+| **Benjamín Bustamante**   | Modelo y datos |
+| **Ignacio Solar**   | Nucleo paralelo |
+| **Fabián Lizama**   | Integracion y fisica |
+| **Benjamín Sepúlveda**   | Metricas y benchmarks |
+| **Josepha Gaete**   | Calidad, CI y visualizacion |
 
 ## Decisiones de Diseno
 
