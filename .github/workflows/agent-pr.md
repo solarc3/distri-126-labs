@@ -1,7 +1,7 @@
 ---
 engine:
   id: copilot
-  model: gpt-5-mini
+  model: gpt-4o
 on:
   pull_request:
     types: [opened, synchronize]

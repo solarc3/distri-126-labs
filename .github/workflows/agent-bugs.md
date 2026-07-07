@@ -1,7 +1,7 @@
 ---
 engine:
   id: copilot
-  model: gpt-5
+  model: gpt-4o
 max-ai-credits: 200
 on:
   schedule: daily
