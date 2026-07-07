@@ -1,4 +1,7 @@
 ---
+engine:
+  id: copilot
+  model: gpt-5-mini
 on:
   schedule: weekly on sunday
 permissions:

@@ -1,4 +1,8 @@
 ---
+engine:
+  id: copilot
+  model: gpt-5
+max-ai-credits: 200
 on:
   schedule: daily
 permissions:
