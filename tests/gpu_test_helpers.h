@@ -54,6 +54,11 @@ inline bool compareParticleStates(const std::vector<Particle>& cpu,
 inline std::string mismatchDetail(const std::vector<Particle>& cpu,
                                   const std::vector<Particle>& gpu,
                                   double rtol = kGpuRtol, double atol = kGpuAtol) {
+    if (cpu.size() != gpu.size()) {
+        return "size mismatch cpu=" + std::to_string(cpu.size()) +
+               " gpu=" + std::to_string(gpu.size());
+    }
+
     for (size_t i = 0; i < cpu.size(); ++i) {
         if (!compareFloat(cpu[i].getX(), gpu[i].getX(), rtol, atol))
             return "x[" + std::to_string(i) + "] cpu=" + std::to_string(cpu[i].getX()) +
