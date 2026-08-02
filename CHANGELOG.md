@@ -8,6 +8,7 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 ### Added
 - Configuración inicial de agentes de IA (Documentador, Bugs, MRs) usando GitHub Agentic Workflows.
 - Reglas de protección de rama y flujos de revisión automatizados.
+- Se documentó en `README.md` el desglose de sub-issues propuestos para CUDA Lab 2 y su asignación por rol de equipo (issue #14).
 
 ### Changed
 - (Espacio reservado para los cambios de CPU a GPU)
