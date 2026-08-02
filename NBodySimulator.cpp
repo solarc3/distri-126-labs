@@ -786,7 +786,7 @@ void NBodySimulator::initializeRandom(int numParticles,
 void NBodySimulator::launchGpuKernel(int n, int variant, int block_size) {
     if (n == 0) return;
 
-#if __has_include(<cuda_runtime.h>)
+#if defined(NBODY_ENABLE_CUDA_KERNELS)
     syncSoAFromParticles(n);
     double eps2 = epsilon * epsilon;
 

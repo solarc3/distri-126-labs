@@ -1,7 +1,7 @@
 #ifndef ACCELERATIONS_CUH
 #define ACCELERATIONS_CUH
 
-#if __has_include(<cuda_runtime.h>)
+#if defined(NBODY_ENABLE_CUDA_KERNELS)
 #include <cuda_runtime.h>
 
 void launchComputeAccelerations(const double* d_x, const double* d_y,
