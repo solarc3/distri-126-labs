@@ -6,6 +6,18 @@
 
 static constexpr int kBlockSize = 256;
 
+// AtomicAdd para double via atomicCAS (compatible con cualquier compute capability)
+__device__ double atomicAddDouble(double* address, double val) {
+    unsigned long long int* addr_as_ull = reinterpret_cast<unsigned long long int*>(address);
+    unsigned long long int old = *addr_as_ull, assumed;
+    do {
+        assumed = old;
+        old = atomicCAS(addr_as_ull, assumed,
+                        __double_as_longlong(val + __longlong_as_double(assumed)));
+    } while (assumed != old);
+    return __longlong_as_double(old);
+}
+
 // ---------------------------------------------------------------------------
 // Kernel de energia cinetica con reduccion en shared memory
 // K = 1/2 * sum_i m_i * ||v_i||^2
@@ -34,7 +46,7 @@ __global__ void computeKineticEnergyKernel(const double* d_vx,
     }
 
     if (threadIdx.x == 0) {
-        atomicAdd(d_result, sdata[0]);
+        atomicAddDouble(d_result, sdata[0]);
     }
 }
 
@@ -78,7 +90,7 @@ __global__ void computePotentialEnergyKernel(const double* d_x,
     }
 
     if (threadIdx.x == 0) {
-        atomicAdd(d_result, sdata[0]);
+        atomicAddDouble(d_result, sdata[0]);
     }
 }
 
