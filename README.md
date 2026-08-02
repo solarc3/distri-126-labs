@@ -70,6 +70,22 @@ Al fijar `G = 1.0`, se define un sistema adimensional coherente: todas las posic
 - **Pruebas de accion-reaccion**: tolerancia de `1e-5` para la tercera ley de Newton.
 - **Pruebas de regresion**: se verifica que los valores sean finitos (`std::isfinite()`) ante condiciones extremas (distancias casi nulas, masas negativas).
 
+#### Tolerancias para comparacion CPU vs GPU (Lab 2)
+La equivalencia entre resultados de CPU (referencia serial) y GPU se verifica mediante
+comparacion en coma flotante con tolerancias relativa (`rtol`) y absoluta (`atol`),
+definidas en `tests/gpu_test_helpers.h`:
+
+| Parametro | Valor | Descripcion |
+|-----------|-------|-------------|
+| `rtol` | **1e-4** | Tolerancia relativa. La diferencia entre dos valores `a` y `b` se considera aceptable si `|a - b| <= atol + rtol * max(|a|, |b|)`. Un `rtol` de 1e-4 equivale a exigir al menos 4 digitos significativos de coincidencia respecto a la magnitud del valor. |
+| `atol` | **1e-8** | Tolerancia absoluta. Actua como piso minimo de comparacion para valores cercanos a cero, donde la tolerancia relativa perderia sentido. Un `atol` de 1e-8 garantiza que diferencias menores a este umbral se consideren identicas, independientemente de la magnitud. |
+
+Estos valores fueron sugeridos por el laboratorio para aceleraciones y son consistentes
+con el error de redondeo esperado en operaciones de suma acumulativa en GPU (orden de
+reduccion no deterministico y precision `float`/`double` en kernels CUDA). La infraestructura
+de comparacion esta implementada en `tests/gpu_test_helpers.h` y es utilizada por los
+tests de equivalencia en `tests/test_gpu_equivalence.cpp`.
+
 ## Cláusulas OpenMP Implementadas
 
 | Clausula / Directiva | Archivo | Metodo |
@@ -233,6 +249,8 @@ de rendimiento: esas solo se aceptan desde el nodo GPU del clúster DIINF.
 ├── kernels/                 # Kernels CUDA (.cu/.cuh) — Lab 2, aun sin contenido
 ├── .github/                 # CI con GitHub Actions (build-and-test + docker-cuda-build)
 ├── tests/
-│   └── test_physics.cpp     # Pruebas unitarias y de regresion con GTest
+│   ├── test_physics.cpp         # Pruebas unitarias y de regresion con GTest
+│   ├── test_gpu_equivalence.cpp # Pruebas de equivalencia CPU vs GPU (esqueleto Lab 2)
+│   └── gpu_test_helpers.h       # Helpers de comparacion con tolerancias (rtol, atol)
 └── README.md                # Este archivo
 ```

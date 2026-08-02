@@ -74,8 +74,18 @@ clean:
 	rm -f $(OBJS) $(CU_OBJS) $(TARGET) *.dat run_tests *.png vec_*.log
 
 TEST_TARGET = run_tests
-TEST_SOURCES = tests/test_physics.cpp Particle.cpp NBodySimulator.cpp Integrator.cpp MetricsCalculator.cpp Visualizer.cpp
+TEST_SOURCES = tests/test_physics.cpp tests/test_gpu_equivalence.cpp Particle.cpp NBodySimulator.cpp Integrator.cpp MetricsCalculator.cpp Visualizer.cpp
 
 test: $(TEST_SOURCES)
 	$(CXX) $(TEST_CXXFLAGS) -o $(TEST_TARGET) $(TEST_SOURCES) $(LDFLAGS) -lgtest -lgtest_main -pthread
 	./$(TEST_TARGET)
+
+test-cuda-buffer: tests/test_cuda_buffer.cpp CudaBuffer.h
+	$(CXX) $(TEST_CXXFLAGS) -o run_test_cuda_buffer tests/test_cuda_buffer.cpp $(LDFLAGS)
+	./run_test_cuda_buffer
+	rm -f run_test_cuda_buffer
+
+test-cuda-soa: tests/test_cuda_device_soa.cpp CudaDeviceSoA.h CudaBuffer.h
+	$(CXX) $(TEST_CXXFLAGS) -o run_test_cuda_soa tests/test_cuda_device_soa.cpp $(LDFLAGS)
+	./run_test_cuda_soa
+	rm -f run_test_cuda_soa
