@@ -87,10 +87,9 @@ TEST(GpuTestHarness, CompareFloatArraySizeMismatch) {
 // ---------------------------------------------------------------------------
 // Tests de equivalencia CPU vs GPU usando el harness
 // ---------------------------------------------------------------------------
-// NOTA: Las funciones computeAccelerationsGpu() y stepEulerGpu() ya están
-// implementadas en NBodySimulator y delegadas desde cpu_gpu_harness.h.
-// calculateEnergyGpu() aún usa CPU como fallback hasta que R1 entregue
-// el kernel de reducción en GPU.
+// NOTA: Las funciones computeAccelerationsGpu(), stepEulerGpu() y
+// calculateEnergyGpu() ya estan implementadas en NBodySimulator y
+// delegadas desde cpu_gpu_harness.h.
 
 TEST(GpuEquivalence, AccelerationsN2) {
     HarnessConfig cfg;

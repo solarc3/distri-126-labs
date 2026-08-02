@@ -1,6 +1,7 @@
 #include "NBodySimulator.h"
 #include "Integrator.h"
 #include "kernels/accelerations.cuh"
+#include "kernels/energy.cuh"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -845,6 +846,87 @@ void NBodySimulator::computeAccelerationsGpu(int variant, int block_size) {
 }
 
 void NBodySimulator::stepEulerGpu(double dt) {
-    computeAccelerationsGpu();
-    integrate(dt);
+    stepEulerGpu(dt, 0, 0);
+}
+
+void NBodySimulator::stepEulerGpu(double dt, int variant) {
+    stepEulerGpu(dt, variant, 0);
+}
+
+void NBodySimulator::stepEulerGpu(double dt, int variant, int block_size) {
+    const int n = getNumParticles();
+    if (n == 0) return;
+
+    // ---------------------------------------------------------------
+    // 1. Kernel de aceleraciones en GPU
+    //    1a. syncSoAFromParticles: AoS -> SoA (x,y,mass) [host]
+    //    1b. copyHostToDevice: SoA -> device buffers
+    //    1c. launchComputeAccelerations<<<grid,block>>>(...) [GPU]
+    //    1d. cudaDeviceSynchronize()
+    //    1e. copyDeviceToHost: device buffers -> SoA (ax,ay) [host]
+    //    1f. syncAccelerationsToParticles: SoA -> particles [host]
+    // ---------------------------------------------------------------
+    launchGpuKernel(n, variant, block_size);
+
+    // ---------------------------------------------------------------
+    // 2. Euler explicito en host (kick-drift secuencial)
+    //    Orden fijo: primero kick (v += a*dt), luego drift (r += v*dt)
+    //    con las velocidades recien actualizadas (Euler simplectico)
+    // ---------------------------------------------------------------
+    Particle* NBODY_RESTRICT p = particles.data();
+    for (int i = 0; i < n; ++i) {
+        const double vx_new = p[i].vx + p[i].ax * dt;
+        const double vy_new = p[i].vy + p[i].ay * dt;
+        p[i].vx = vx_new;
+        p[i].vy = vy_new;
+        p[i].x += vx_new * dt;
+        p[i].y += vy_new * dt;
+    }
+
+    // Las posiciones en host quedan actualizadas. Si el siguiente
+    // paso requiere aceleraciones, launchGpuKernel() volvera a
+    // copiar host->device desde los SoA actualizados.
+}
+
+// ---------------------------------------------------------------------------
+// GPU: energia cinetica y potencial con reduccion en shared memory
+// ---------------------------------------------------------------------------
+
+void NBodySimulator::calculateEnergyGpu(double& kinetic, double& potential, int method) {
+    const int n = getNumParticles();
+    if (n == 0) {
+        kinetic = 0.0;
+        potential = 0.0;
+        return;
+    }
+
+#if defined(NBODY_ENABLE_CUDA_KERNELS)
+    syncSoAFromParticles(n);
+
+    std::vector<double> host_vx(n), host_vy(n);
+    const Particle* NBODY_RESTRICT p = particles.data();
+    for (int i = 0; i < n; ++i) {
+        host_vx[i] = p[i].vx;
+        host_vy[i] = p[i].vy;
+    }
+
+    deviceSoa_.allocate(n);
+    deviceSoa_.copyHostToDevice(soa_x.data(), soa_y.data(), soa_mass.data(), n);
+
+    CudaBuffer<double> d_vx(n), d_vy(n);
+    d_vx.copyFromHost(host_vx.data(), n);
+    d_vy.copyFromHost(host_vy.data(), n);
+
+    double eps2 = epsilon * epsilon;
+    kinetic = 0.0;
+    potential = 0.0;
+
+    launchComputeEnergy(
+        deviceSoa_.d_x.data(), deviceSoa_.d_y.data(), deviceSoa_.d_mass.data(),
+        d_vx.data(), d_vy.data(),
+        n, G, eps2, &kinetic, &potential, method);
+#else
+    (void)method;
+    calculateEnergy(kinetic, potential);
+#endif
 }
