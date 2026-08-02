@@ -3,6 +3,7 @@
 #include <vector>
 #include <string>
 #include "gpu_test_helpers.h"
+#include "cpu_gpu_harness.h"
 #include "../NBodySimulator.h"
 #include "../MetricsCalculator.h"
 
@@ -33,26 +34,26 @@ TEST(GpuTestHarness, CompareFloatIdenticalValues) {
 }
 
 TEST(GpuTestHarness, CompareFloatWithinAtol) {
-    EXPECT_TRUE(compareFloat(0.0, 1e-9));                    // < atol
-    EXPECT_TRUE(compareFloat(0.0, kGpuAtol));                // == atol (border)
-    EXPECT_TRUE(compareFloat(0.0, -5e-9));                   // negativo < atol
+    EXPECT_TRUE(compareFloat(0.0, 1e-9));
+    EXPECT_TRUE(compareFloat(0.0, kGpuAtol));
+    EXPECT_TRUE(compareFloat(0.0, -5e-9));
 }
 
 TEST(GpuTestHarness, CompareFloatWithinRtol) {
-    EXPECT_TRUE(compareFloat(1.0, 1.0 + 5e-5));              // diff < rtol*1.0
+    EXPECT_TRUE(compareFloat(1.0, 1.0 + 5e-5));
     EXPECT_TRUE(compareFloat(1000.0, 1000.0 * (1.0 + kGpuRtol)));
     EXPECT_TRUE(compareFloat(-50.0, -50.0 + 1e-4 * 50.0));
 }
 
 TEST(GpuTestHarness, CompareFloatOutsideTolerance) {
-    EXPECT_FALSE(compareFloat(1.0, 1.0 + 2e-4));            // diff > rtol para valor ~1
-    EXPECT_FALSE(compareFloat(0.0, 2e-8));                  // diff > atol
-    EXPECT_FALSE(compareFloat(100.0, 100.0 + 0.1));         // diff grande
+    EXPECT_FALSE(compareFloat(1.0, 1.0 + 2e-4));
+    EXPECT_FALSE(compareFloat(0.0, 2e-8));
+    EXPECT_FALSE(compareFloat(100.0, 100.0 + 0.1));
 }
 
 TEST(GpuTestHarness, CompareFloatMixedSigns) {
-    EXPECT_FALSE(compareFloat(1.0, -1.0));                  // diferencia grande
-    EXPECT_TRUE(compareFloat(1e-10, -1e-10));               // dentro de atol
+    EXPECT_FALSE(compareFloat(1.0, -1.0));
+    EXPECT_TRUE(compareFloat(1e-10, -1e-10));
 }
 
 TEST(GpuTestHarness, CompareParticleStatesMatch) {
@@ -84,229 +85,187 @@ TEST(GpuTestHarness, CompareFloatArraySizeMismatch) {
 }
 
 // ---------------------------------------------------------------------------
-// Esqueleto: tests de equivalencia CPU serial vs GPU
+// Tests de equivalencia CPU vs GPU usando el harness
 // ---------------------------------------------------------------------------
-// NOTA: Estos tests contienen placeholders para las llamadas GPU que seran
-// provistas por R1/R2. Actualmente comparan CPU vs CPU para validar la
-// infraestructura de comparacion. Sustituir los marcadores
-// /* TODO(gpu): ... */ cuando las funciones GPU esten disponibles.
+// NOTA: Las funciones computeAccelerationsGpu(), stepEulerGpu() y
+// calculateEnergyGpu() estan marcadas con TODO(gpu) en cpu_gpu_harness.h.
+// Actualmente delegan en la implementacion CPU. Cuando R1/R2 entreguen los
+// kernels CUDA, solo hay que reemplazar los cuerpos de esas funciones en
+// cpu_gpu_harness.h sin modificar los tests.
 
 TEST(GpuEquivalence, AccelerationsN2) {
-    const int N = 2;
-    // ------------------------------------------------------------------
-    // Preparacion: misma configuracion CPU y GPU
-    // ------------------------------------------------------------------
-    NBodySimulator cpuSim(1.0, 0.1);
-    NBodySimulator gpuSim(1.0, 0.1);
+    HarnessConfig cfg;
+    cfg.numBodies = 2;
+    cfg.seed = 100;
 
-    Particle p1(0.0, 0.0, 0.0, 0.0, 1.0);
-    Particle p2(1.0, 0.0, 0.0, 0.0, 1.0);
-    cpuSim.addParticle(p1); cpuSim.addParticle(p2);
-    gpuSim.addParticle(p1); gpuSim.addParticle(p2);
-
-    // ------------------------------------------------------------------
-    // Computo de referencia (CPU serial)
-    // ------------------------------------------------------------------
-    cpuSim.computeAccelerations();
-
-    // ------------------------------------------------------------------
-    // Computo GPU (placeholder: actualmente usa CPU)
-    // TODO(gpu): reemplazar por computeAccelerationsGpu() cuando R1 lo entregue
-    // ------------------------------------------------------------------
-    gpuSim.computeAccelerations();
-
-    // ------------------------------------------------------------------
-    // Comparacion con tolerancias de laboratorio
-    // ------------------------------------------------------------------
-    const auto& cpu = cpuSim.getParticles();
-    const auto& gpu = gpuSim.getParticles();
-
-    EXPECT_EQ(cpu.size(), gpu.size());
-    for (int i = 0; i < N; ++i) {
-        SCOPED_TRACE("particula " + std::to_string(i));
-        EXPECT_TRUE(compareAccelerations(cpu[i], gpu[i]))
-            << "ax=" << cpu[i].getAx() << " vs " << gpu[i].getAx()
-            << " ay=" << cpu[i].getAy() << " vs " << gpu[i].getAy();
-    }
+    auto r = compareAccelerationsOnly(cfg);
+    EXPECT_TRUE(r.accelerationsOk) << r.firstMismatch;
+    EXPECT_EQ(r.mismatchCount, 0u);
 }
 
 TEST(GpuEquivalence, AccelerationsN3) {
-    const int N = 3;
-    NBodySimulator cpuSim(1.0, 0.1);
-    NBodySimulator gpuSim(1.0, 0.1);
+    HarnessConfig cfg;
+    cfg.numBodies = 3;
+    cfg.seed = 200;
 
-    Particle p1(0.0, 0.0, 0.0, 0.0, 2.0);
-    Particle p2(3.0, 0.0, 0.0, 0.0, 1.0);
-    Particle p3(0.0, 4.0, 0.0, 0.0, 1.5);
-    cpuSim.addParticle(p1); cpuSim.addParticle(p2); cpuSim.addParticle(p3);
-    gpuSim.addParticle(p1); gpuSim.addParticle(p2); gpuSim.addParticle(p3);
-
-    cpuSim.computeAccelerations();
-
-    // TODO(gpu): reemplazar por computeAccelerationsGpu()
-    gpuSim.computeAccelerations();
-
-    const auto& cpu = cpuSim.getParticles();
-    const auto& gpu = gpuSim.getParticles();
-
-    EXPECT_EQ(cpu.size(), gpu.size());
-    for (int i = 0; i < N; ++i) {
-        SCOPED_TRACE("particula " + std::to_string(i));
-        EXPECT_TRUE(compareAccelerations(cpu[i], gpu[i]))
-            << "ax=" << cpu[i].getAx() << " vs " << gpu[i].getAx()
-            << " ay=" << cpu[i].getAy() << " vs " << gpu[i].getAy();
-    }
+    auto r = compareAccelerationsOnly(cfg);
+    EXPECT_TRUE(r.accelerationsOk) << r.firstMismatch;
+    EXPECT_EQ(r.mismatchCount, 0u);
 }
 
 TEST(GpuEquivalence, FullStepN2) {
-    const double dt = 0.01;
-    NBodySimulator cpuSim(1.0, 0.1);
-    NBodySimulator gpuSim(1.0, 0.1);
+    HarnessConfig cfg;
+    cfg.numBodies = 2;
+    cfg.seed = 300;
+    cfg.dt = 0.01;
 
-    Particle p1(0.0, 0.0, 0.5, 0.0, 1.0);
-    Particle p2(1.0, 0.0, 0.0, 0.5, 1.0);
-    cpuSim.addParticle(p1); cpuSim.addParticle(p2);
-    gpuSim.addParticle(p1); gpuSim.addParticle(p2);
-
-    cpuSim.computeAccelerations();
-    cpuSim.integrate(dt);
-
-    // TODO(gpu): reemplazar por stepEulerGpu(dt)
-    gpuSim.computeAccelerations();
-    gpuSim.integrate(dt);
-
-    const auto& cpu = cpuSim.getParticles();
-    const auto& gpu = gpuSim.getParticles();
-
-    ASSERT_EQ(cpu.size(), gpu.size());
-    for (size_t i = 0; i < cpu.size(); ++i) {
-        SCOPED_TRACE("particula " + std::to_string(i));
-        EXPECT_TRUE(compareParticles(cpu[i], gpu[i]))
-            << mismatchDetail(cpu, gpu);
-    }
+    auto r = compareFullStep(cfg);
+    EXPECT_TRUE(r.allOk) << r.firstMismatch;
+    EXPECT_EQ(r.mismatchCount, 0u);
 }
 
 TEST(GpuEquivalence, MultiStepN2) {
-    const double dt = 0.01;
-    const int steps = 10;
-    NBodySimulator cpuSim(1.0, 0.1);
-    NBodySimulator gpuSim(1.0, 0.1);
+    HarnessConfig cfg;
+    cfg.numBodies = 2;
+    cfg.seed = 400;
+    cfg.dt = 0.01;
+    cfg.steps = 10;
 
-    Particle p1(0.0, 0.0, 0.5, 0.0, 1.0);
-    Particle p2(1.0, 0.0, 0.0, 0.5, 1.0);
-    cpuSim.addParticle(p1); cpuSim.addParticle(p2);
-    gpuSim.addParticle(p1); gpuSim.addParticle(p2);
-
-    for (int step = 0; step < steps; ++step) {
-        cpuSim.computeAccelerations();
-        cpuSim.integrate(dt);
-
-        // TODO(gpu): reemplazar por stepEulerGpu(dt)
-        gpuSim.computeAccelerations();
-        gpuSim.integrate(dt);
-    }
-
-    const auto& cpu = cpuSim.getParticles();
-    const auto& gpu = gpuSim.getParticles();
-
-    ASSERT_EQ(cpu.size(), gpu.size());
-    for (size_t i = 0; i < cpu.size(); ++i) {
-        SCOPED_TRACE("particula " + std::to_string(i));
-        EXPECT_TRUE(compareParticles(cpu[i], gpu[i]))
-            << mismatchDetail(cpu, gpu);
-    }
+    auto r = compareMultiStep(cfg);
+    EXPECT_TRUE(r.allOk) << r.firstMismatch;
+    EXPECT_EQ(r.mismatchCount, 0u);
 }
 
 TEST(GpuEquivalence, RegressionFullSystem) {
-    const int N = 200;
-    const double dt = 0.01;
-    const int steps = 5;
+    HarnessConfig cfg;
+    cfg.numBodies = 200;
+    cfg.seed = 500;
+    cfg.dt = 0.01;
+    cfg.steps = 5;
 
-    auto initial = makeTestParticles(N);
-
-    NBodySimulator cpuSim(1.0, 0.1);
-    NBodySimulator gpuSim(1.0, 0.1);
-    for (const auto& p : initial) { cpuSim.addParticle(p); gpuSim.addParticle(p); }
-
-    for (int step = 0; step < steps; ++step) {
-        cpuSim.computeAccelerations();
-        cpuSim.integrate(dt);
-
-        // TODO(gpu): reemplazar por stepEulerGpu(dt)
-        gpuSim.computeAccelerations();
-        gpuSim.integrate(dt);
-    }
-
-    const auto& cpu = cpuSim.getParticles();
-    const auto& gpu = gpuSim.getParticles();
-
-    ASSERT_EQ(cpu.size(), gpu.size());
-    for (size_t i = 0; i < cpu.size(); ++i) {
-        SCOPED_TRACE("particula " + std::to_string(i));
-        EXPECT_TRUE(compareParticles(cpu[i], gpu[i]))
-            << mismatchDetail(cpu, gpu);
-    }
+    auto r = compareMultiStep(cfg);
+    EXPECT_TRUE(r.allOk) << r.firstMismatch;
+    EXPECT_EQ(r.mismatchCount, 0u);
 }
 
 TEST(GpuEquivalence, EnergyEquivalenceGpu) {
-    NBodySimulator cpuSim(1.0, 0.1);
-    NBodySimulator gpuSim(1.0, 0.1);
+    HarnessConfig cfg;
+    cfg.numBodies = 2;
+    cfg.seed = 600;
 
-    Particle p1(0.0, 0.0, 0.5, 0.0, 2.0);
-    Particle p2(1.0, 0.0, 0.0, 0.5, 1.0);
-    cpuSim.addParticle(p1); cpuSim.addParticle(p2);
-    gpuSim.addParticle(p1); gpuSim.addParticle(p2);
-
-    cpuSim.computeAccelerations();
-    double cpu_K = 0.0, cpu_U = 0.0;
-    cpuSim.calculateEnergy(cpu_K, cpu_U);
-
-    // TODO(gpu): reemplazar por calculateEnergyGpu()
-    gpuSim.computeAccelerations();
-    double gpu_K = 0.0, gpu_U = 0.0;
-    gpuSim.calculateEnergy(gpu_K, gpu_U);
-
-    EXPECT_TRUE(compareFloat(cpu_K, gpu_K))
-        << "energia cinetica: cpu=" << cpu_K << " gpu=" << gpu_K;
-    EXPECT_TRUE(compareFloat(cpu_U, gpu_U))
-        << "energia potencial: cpu=" << cpu_U << " gpu=" << gpu_U;
+    auto r = compareEnergy(cfg);
+    EXPECT_TRUE(r.allOk) << r.firstMismatch;
+    EXPECT_EQ(r.mismatchCount, 0u);
 }
 
 TEST(GpuEquivalence, PhysicalInvariantsGpu) {
-    const int N = 50;
-    const double dt = 0.01;
-    auto initial = makeTestParticles(N);
+    HarnessConfig cfg;
+    cfg.numBodies = 50;
+    cfg.seed = 700;
+    cfg.dt = 0.01;
 
-    NBodySimulator cpuSim(1.0, 0.1);
-    NBodySimulator gpuSim(1.0, 0.1);
-    for (const auto& p : initial) { cpuSim.addParticle(p); gpuSim.addParticle(p); }
+    auto r = comparePhysicalInvariants(cfg);
+    EXPECT_TRUE(r.allOk) << r.firstMismatch;
+    EXPECT_EQ(r.mismatchCount, 0u);
+}
 
-    cpuSim.computeAccelerations();
-    cpuSim.integrate(dt);
+// ---------------------------------------------------------------------------
+// Tests parametrizados: barrido de N (demuestra modularidad del harness)
+// ---------------------------------------------------------------------------
 
-    // TODO(gpu): reemplazar por stepEulerGpu(dt)
-    gpuSim.computeAccelerations();
-    gpuSim.integrate(dt);
+class GpuEquivalenceParameterized : public ::testing::TestWithParam<int> {};
 
-    const auto& cpu = cpuSim.getParticles();
-    const auto& gpu = gpuSim.getParticles();
+TEST_P(GpuEquivalenceParameterized, AccelerationsScale) {
+    int N = GetParam();
+    HarnessConfig cfg;
+    cfg.numBodies = N;
+    cfg.seed = 42;
 
-    auto cpu_P = MetricsCalculator::calculateTotalMomentum(cpu);
-    auto gpu_P = MetricsCalculator::calculateTotalMomentum(gpu);
-    EXPECT_TRUE(compareFloat(cpu_P.first, gpu_P.first))
-        << "momento x: cpu=" << cpu_P.first << " gpu=" << gpu_P.first;
-    EXPECT_TRUE(compareFloat(cpu_P.second, gpu_P.second))
-        << "momento y: cpu=" << cpu_P.second << " gpu=" << gpu_P.second;
+    auto r = compareAccelerationsOnly(cfg);
+    EXPECT_TRUE(r.accelerationsOk) << "N=" << N << ": " << r.firstMismatch;
+}
 
-    auto cpu_CM = MetricsCalculator::calculateCenterOfMass(cpu);
-    auto gpu_CM = MetricsCalculator::calculateCenterOfMass(gpu);
-    EXPECT_TRUE(compareFloat(cpu_CM.first, gpu_CM.first))
-        << "CM x: cpu=" << cpu_CM.first << " gpu=" << gpu_CM.first;
-    EXPECT_TRUE(compareFloat(cpu_CM.second, gpu_CM.second))
-        << "CM y: cpu=" << cpu_CM.second << " gpu=" << gpu_CM.second;
+TEST_P(GpuEquivalenceParameterized, MultiStepScale) {
+    int N = GetParam();
+    HarnessConfig cfg;
+    cfg.numBodies = N;
+    cfg.seed = 43;
+    cfg.dt = 0.01;
+    cfg.steps = 3;
 
-    double cpu_rms = MetricsCalculator::calculateRMSRadius(cpu);
-    double gpu_rms = MetricsCalculator::calculateRMSRadius(gpu);
-    EXPECT_TRUE(compareFloat(cpu_rms, gpu_rms))
-        << "radio RMS: cpu=" << cpu_rms << " gpu=" << gpu_rms;
+    auto r = compareMultiStep(cfg);
+    EXPECT_TRUE(r.allOk) << "N=" << N << ": " << r.firstMismatch;
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    SweepN,
+    GpuEquivalenceParameterized,
+    ::testing::Values(2, 3, 4, 5, 10, 50, 100, 200)
+);
+
+// ---------------------------------------------------------------------------
+// Test de consistencia interna del harness: configs distintos deben dar
+// resultados distintos (sanity check de inicializacion reproducible)
+// ---------------------------------------------------------------------------
+
+TEST(HarnessConsistency, DifferentSeedsProduceDifferentStates) {
+    HarnessConfig cfgA;
+    cfgA.numBodies = 10;
+    cfgA.seed = 1000;
+
+    HarnessConfig cfgB;
+    cfgB.numBodies = 10;
+    cfgB.seed = 2000;
+
+    NBodySimulator simA(cfgA.G, cfgA.epsilon);
+    NBodySimulator simB(cfgB.G, cfgB.epsilon);
+
+    simA.initializeRandom(cfgA.numBodies, cfgA.seed,
+                          cfgA.posMin, cfgA.posMax,
+                          cfgA.velMin, cfgA.velMax,
+                          cfgA.massMin, cfgA.massMax);
+    simB.initializeRandom(cfgB.numBodies, cfgB.seed,
+                          cfgB.posMin, cfgB.posMax,
+                          cfgB.velMin, cfgB.velMax,
+                          cfgB.massMin, cfgB.massMax);
+
+    const auto& pA = simA.getParticles();
+    const auto& pB = simB.getParticles();
+    ASSERT_EQ(pA.size(), pB.size());
+
+    bool anyDifferent = false;
+    for (size_t i = 0; i < pA.size(); ++i) {
+        if (pA[i].getX() != pB[i].getX()) { anyDifferent = true; break; }
+    }
+    EXPECT_TRUE(anyDifferent) << "Misma semilla deberia generar estados distintos";
+}
+
+TEST(HarnessConsistency, SameSeedProducesIdenticalStates) {
+    HarnessConfig cfg;
+    cfg.numBodies = 10;
+    cfg.seed = 5000;
+
+    NBodySimulator simA(cfg.G, cfg.epsilon);
+    NBodySimulator simB(cfg.G, cfg.epsilon);
+
+    simA.initializeRandom(cfg.numBodies, cfg.seed,
+                          cfg.posMin, cfg.posMax,
+                          cfg.velMin, cfg.velMax,
+                          cfg.massMin, cfg.massMax);
+    simB.initializeRandom(cfg.numBodies, cfg.seed,
+                          cfg.posMin, cfg.posMax,
+                          cfg.velMin, cfg.velMax,
+                          cfg.massMin, cfg.massMax);
+
+    const auto& pA = simA.getParticles();
+    const auto& pB = simB.getParticles();
+    ASSERT_EQ(pA.size(), pB.size());
+
+    for (size_t i = 0; i < pA.size(); ++i) {
+        EXPECT_DOUBLE_EQ(pA[i].getX(), pB[i].getX());
+        EXPECT_DOUBLE_EQ(pA[i].getY(), pB[i].getY());
+        EXPECT_DOUBLE_EQ(pA[i].getVx(), pB[i].getVx());
+        EXPECT_DOUBLE_EQ(pA[i].getVy(), pB[i].getVy());
+        EXPECT_DOUBLE_EQ(pA[i].getMass(), pB[i].getMass());
+    }
 }
