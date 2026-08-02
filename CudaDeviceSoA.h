@@ -76,17 +76,24 @@ public:
         copyHostToDevice(h_x.data(), h_y.data(), h_mass.data(), h_x.size());
     }
 
-    void copyDeviceToHost(double* h_ax, double* h_ay, size_t count) const {
+    void copyDeviceToHost(double* h_ax, double* h_ay, size_t count) {
         if (count > size_) {
             throw std::out_of_range("CudaDeviceSoA::copyDeviceToHost: la cantidad excede el tamaño asignado");
         }
-        if (count > 0) {
-            d_ax.copyToHost(h_ax, count);
-            d_ay.copyToHost(h_ay, count);
+        if (count == 0) {
+            is_host_outputs_synced_ = true;
+            return;
         }
+        if (h_ax == nullptr || h_ay == nullptr) {
+            throw std::invalid_argument("CudaDeviceSoA::copyDeviceToHost: punteros host nulos con count > 0");
+        }
+
+        d_ax.copyToHost(h_ax, count);
+        d_ay.copyToHost(h_ay, count);
+        is_host_outputs_synced_ = true;
     }
 
-    void copyDeviceToHost(std::vector<double>& h_ax, std::vector<double>& h_ay) const {
+    void copyDeviceToHost(std::vector<double>& h_ax, std::vector<double>& h_ay) {
         if (h_ax.size() < size_) h_ax.resize(size_);
         if (h_ay.size() < size_) h_ay.resize(size_);
         copyDeviceToHost(h_ax.data(), h_ay.data(), size_);
