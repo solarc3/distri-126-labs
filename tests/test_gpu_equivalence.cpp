@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <vector>
 #include <string>
+#include <tuple>
 #include "gpu_test_helpers.h"
 #include "cpu_gpu_harness.h"
 #include "../NBodySimulator.h"
@@ -259,6 +260,98 @@ INSTANTIATE_TEST_SUITE_P(
     SweepN,
     GpuEquivalenceParameterized,
     ::testing::Values(2, 3, 4, 5, 10, 50, 100, 200, 257, 512, 1000, 2000)
+);
+
+// ---------------------------------------------------------------------------
+// Tests de cobertura de block_size y variant en computeAccelerationsGpu
+// Usan ::testing::Combine para barrer todas las combinaciones de
+// (N, block_size, variant).
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Test GPU vs CPU para todas las combinaciones de (N, block_size, variant).
+// Cubre invariancia: mismo N, distinto block_size o variant debe producir
+// el mismo resultado que CPU dentro de tolerancia.
+// ---------------------------------------------------------------------------
+
+class GpuBlockSizeVariantVsCpu
+    : public ::testing::TestWithParam<std::tuple<int, int, int>> {};
+
+TEST_P(GpuBlockSizeVariantVsCpu, AccelerationsMatchCpu) {
+    int N = std::get<0>(GetParam());
+    int block_size = std::get<1>(GetParam());
+    int variant = std::get<2>(GetParam());
+
+    unsigned int seed = static_cast<unsigned int>(N * 1000 + block_size + variant * 777);
+    NBodySimulator cpuSim(1.0, 0.1);
+    NBodySimulator gpuSim(1.0, 0.1);
+
+    cpuSim.initializeRandom(N, seed, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+    gpuSim.initializeRandom(N, seed, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    cpuSim.computeAccelerations();
+    gpuSim.computeAccelerationsGpu(variant, block_size);
+
+    const auto& cpu = cpuSim.getParticles();
+    const auto& gpu = gpuSim.getParticles();
+    ASSERT_EQ(cpu.size(), gpu.size());
+
+    for (size_t i = 0; i < cpu.size(); ++i) {
+        EXPECT_TRUE(compareAccelerations(cpu[i], gpu[i]))
+            << "N=" << N << " block=" << block_size
+            << " variant=" << variant << " i=" << i;
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    SweepBlockSizeVariant,
+    GpuBlockSizeVariantVsCpu,
+    ::testing::Combine(
+        ::testing::Values(50, 65, 129, 257, 513, 1025),
+        ::testing::Values(64, 128, 256, 512, 1024),
+        ::testing::Values(0, 1)
+    )
+);
+
+// ---------------------------------------------------------------------------
+// Test equivalencia variant=0 vs variant=1 directa (sin pasar por CPU).
+// N que cruzan bordes de bloque para todos los block_size.
+// ---------------------------------------------------------------------------
+
+class GpuAccelerationsVariantEquivalence
+    : public ::testing::TestWithParam<std::tuple<int, int>> {};
+
+TEST_P(GpuAccelerationsVariantEquivalence, Variant0VsVariant1) {
+    int N = std::get<0>(GetParam());
+    int block_size = std::get<1>(GetParam());
+
+    unsigned int seed = static_cast<unsigned int>(N * 2000 + block_size + 5000);
+    NBodySimulator sim0(1.0, 0.1);
+    NBodySimulator sim1(1.0, 0.1);
+
+    sim0.initializeRandom(N, seed, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+    sim1.initializeRandom(N, seed, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    sim0.computeAccelerationsGpu(0, block_size);
+    sim1.computeAccelerationsGpu(1, block_size);
+
+    const auto& p0 = sim0.getParticles();
+    const auto& p1 = sim1.getParticles();
+    ASSERT_EQ(p0.size(), p1.size());
+
+    for (size_t i = 0; i < p0.size(); ++i) {
+        EXPECT_TRUE(compareAccelerations(p0[i], p1[i]))
+            << "N=" << N << " block=" << block_size << " i=" << i;
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    SweepVariantEquiv,
+    GpuAccelerationsVariantEquivalence,
+    ::testing::Combine(
+        ::testing::Values(50, 65, 129, 257, 513, 1025),
+        ::testing::Values(64, 128, 256, 512, 1024)
+    )
 );
 
 // ---------------------------------------------------------------------------
