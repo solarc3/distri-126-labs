@@ -349,9 +349,18 @@ inline HarnessResult comparePhysicalInvariants(const HarnessConfig& cfg) {
 
     if (!result.allOk) {
         result.mismatchCount = 1;
-        result.firstMismatch =
-            "Px cpu=" + std::to_string(cpu_P.first) + " gpu=" + std::to_string(gpu_P.first) +
-            " Py cpu=" + std::to_string(cpu_P.second) + " gpu=" + std::to_string(gpu_P.second);
+        if (!pxOk || !pyOk) {
+            result.firstMismatch =
+                "P cpu=(" + std::to_string(cpu_P.first) + "," + std::to_string(cpu_P.second) + ")" +
+                " gpu=(" + std::to_string(gpu_P.first) + "," + std::to_string(gpu_P.second) + ")";
+        } else if (!cmxOk || !cmyOk) {
+            result.firstMismatch =
+                "CM cpu=(" + std::to_string(cpu_CM.first) + "," + std::to_string(cpu_CM.second) + ")" +
+                " gpu=(" + std::to_string(gpu_CM.first) + "," + std::to_string(gpu_CM.second) + ")";
+        } else if (!rmsOk) {
+            result.firstMismatch =
+                "RMS cpu=" + std::to_string(cpu_rms) + " gpu=" + std::to_string(gpu_rms);
+        }
     }
 
     return result;
