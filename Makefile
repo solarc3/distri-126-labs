@@ -16,7 +16,7 @@ TARGET = nbody_sim
 SRCS = main.cpp Particle.cpp NBodySimulator.cpp Integrator.cpp Benchmark.cpp MetricsCalculator.cpp Visualizer.cpp
 OBJS = $(SRCS:.cpp=.o)
 
-.PHONY: all benchmark benchmark-all analysis clean test vec-report profile
+.PHONY: all benchmark benchmark-all analysis clean test test-cuda-buffer test-cuda-soa vec-report profile
 
 all: $(TARGET)
 
@@ -60,3 +60,13 @@ TEST_SOURCES = tests/test_physics.cpp tests/test_gpu_equivalence.cpp Particle.cp
 test: $(TEST_SOURCES)
 	$(CXX) $(TEST_CXXFLAGS) -o $(TEST_TARGET) $(TEST_SOURCES) $(LDFLAGS) -lgtest -lgtest_main -pthread
 	./$(TEST_TARGET)
+
+test-cuda-buffer: tests/test_cuda_buffer.cpp CudaBuffer.h
+	$(CXX) $(TEST_CXXFLAGS) -o run_test_cuda_buffer tests/test_cuda_buffer.cpp $(LDFLAGS)
+	./run_test_cuda_buffer
+	rm -f run_test_cuda_buffer
+
+test-cuda-soa: tests/test_cuda_device_soa.cpp CudaDeviceSoA.h CudaBuffer.h
+	$(CXX) $(TEST_CXXFLAGS) -o run_test_cuda_soa tests/test_cuda_device_soa.cpp $(LDFLAGS)
+	./run_test_cuda_soa
+	rm -f run_test_cuda_soa
