@@ -170,10 +170,20 @@ make analysis
 
 El `Dockerfile` usa la imagen base oficial sugerida por el enunciado,
 `nvidia/cuda:12.4.1-devel-ubuntu22.04` (incluye CUDA Toolkit 12.4 y `nvcc`).
-El build sigue siendo CPU-only (`g++`) porque aún no hay kernels en
-`kernels/`; en cuanto el rol de Kernels CUDA agregue archivos `.cu`, el
-`Makefile` los detecta automáticamente (`wildcard kernels/*.cu`) y los
-compila con `nvcc`, linkeando con `-lcudart`.
+El `Makefile` detecta automaticamente los archivos en `kernels/*.cu`
+(`wildcard`) y, si `nvcc` esta disponible, los compila y los linkea junto al
+resto del binario con `-lcudart`, agregando `-DNBODY_ENABLE_CUDA_KERNELS`.
+
+**Importante:** ese mismo flag tambien agrega `-I$(CUDA_HOME)/include` a los
+flags de `g++` (no solo a los de `nvcc`). Sin ese include, `g++` —que
+compila `NBodySimulator.cpp` y el resto de los `.cpp`— no ve
+`<cuda_runtime.h>`, y `CudaBuffer.h` cae a un fallback de
+`malloc` de host en esa unidad de compilacion, aunque el kernel real
+(compilado por `nvcc`) si espere punteros de device reales. El sintoma en
+GPU real habria sido un crash o datos corruptos al lanzar el kernel con
+punteros de host disfrazados de punteros de device. Verificado con
+`__has_include(<cuda_runtime.h>)` dentro del contenedor antes y después del
+fix.
 
 **Requisitos en el host:**
 - Driver NVIDIA >= `550.54.14` (Linux) para CUDA 12.4. Verificar con
@@ -201,6 +211,52 @@ docker run --rm --gpus all nbody-cuda
 ```bash
 docker run --rm nbody-cuda make cuda-info
 ```
+
+**`make test` vs `make test-gpu`:** `make test` compila y corre siempre en
+modo CPU-only (no agrega `-DNBODY_ENABLE_CUDA_KERNELS`), a proposito: asi CI
+sigue en verde en runners sin GPU (nvcc puede estar presente sin que haya un
+device real, y un `cudaMalloc` real ahi falla). `make test-gpu` si compila
+contra el kernel CUDA real y solo tiene sentido en una maquina con GPU
+NVIDIA real (ej. el nodo GPU del cluster DIINF) — en cualquier otra maquina
+falla con un error de CUDA (driver ausente), lo cual es el comportamiento
+esperado, no un bug.
+
+### Benchmarks GPU
+
+`./nbody_sim --benchmark-gpu` (o `make benchmark-gpu`) corre la matriz
+obligatoria de la sección 8.2 del enunciado: para cada combinacion de
+`N ∈ {256, 512, 1024, 2000}` × variante `{0=básica, 1=shared memory}` ×
+`blockDim.x ∈ {64, 128, 256, 512, 1024}`, mide con `Benchmark::benchmarkKernelOnly`
+(solo el kernel + `cudaDeviceSynchronize`, sin transferencias) y
+`Benchmark::benchmarkEndToEnd` (`computeAccelerationsGpu`, con transferencias
+H2D/D2H incluidas), usando `std::chrono::steady_clock` en host (no
+`cudaEvent_t`, como pide el enunciado) y `--repetitions` corridas por punto
+(default 10).
+
+```bash
+# En una maquina/nodo con GPU NVIDIA real:
+make benchmark-gpu ARGS="--repetitions 10"
+# o directamente:
+./nbody_sim --benchmark-gpu --repetitions 10
+```
+
+Salidas: `blockdim_study.dat` (kernel-only vs. end-to-end por punto de la
+matriz) y `gpu_benchmark_results.dat` (comparación CPU serial vs. GPU
+end-to-end y speedup con propagación de error, una fila por `(N, variante)`
+con `blockDim.x=256`).
+
+Requiere un binario compilado con `NBODY_ENABLE_CUDA_KERNELS` (ver arriba) y
+una GPU NVIDIA real; sin eso falla con un mensaje explicito en vez de
+inventar numeros. **Las corridas que van al reporte final deben hacerse en
+el nodo GPU del cluster DIINF**, no en CI ni en una laptop sin GPU (sección
+8.3 del enunciado).
+
+**Caveat de variant=1:** el kernel con memoria compartida (issue [#20](https://github.com/solarc3/distri-l1-126/issues/20),
+rol Kernels CUDA) todavia no está integrado — `launchComputeAccelerations`
+ignora el parametro `variant` y siempre ejecuta el kernel basico. El barrido
+ya soporta `variant=1` en la API/CLI, pero hasta que el kernel shared se
+mergee, sus numeros seran identicos a `variant=0`. Hay que volver a correr
+la matriz cuando eso ocurra.
 
 ### CI / gate de fusión a `main`
 
@@ -231,6 +287,8 @@ de rendimiento: esas solo se aceptan desde el nodo GPU del clúster DIINF.
 | `chunk_benchmark.dat` | Tiempo vs tamanio de chunk para cada schedule |
 | `sync_benchmark.dat` | Comparacion de estrategias de sincronizacion (atomic, critical, nowait, normal) |
 | `performance_plots.png` | Graficos: speedup, eficiencia, tiempo, Amdahl, chunk, energia |
+| `blockdim_study.dat` | (`--benchmark-gpu`) Kernel-only vs. end-to-end por `N`/variante/`blockDim.x` |
+| `gpu_benchmark_results.dat` | (`--benchmark-gpu`) CPU vs. GPU end-to-end y speedup por `N`/variante |
 
 ## Estructura del Proyecto
 

@@ -1,7 +1,10 @@
 #include "Benchmark.h"
+#include "NBodySimulator.h"
 #include <cmath>
 #include <omp.h>
 #include <numeric>
+#include <chrono>
+#include <tuple>
 
 std::pair<double, double> Benchmark::measureExecutionTime(std::function<void()> simulation_task) {
     std::vector<double> times(repetitions);
@@ -58,4 +61,98 @@ BenchmarkResult Benchmark::calculateMetrics(int threads,
     }
 
     return res;
+}
+
+namespace {
+
+std::pair<double, double> meanAndStdDev(const std::vector<double>& times) {
+    const double sum = std::accumulate(times.begin(), times.end(), 0.0);
+    const double mean = sum / static_cast<double>(times.size());
+    double sq_sum = 0.0;
+    for (double t : times) {
+        sq_sum += (t - mean) * (t - mean);
+    }
+    const double std_dev = std::sqrt(sq_sum / static_cast<double>(times.size()));
+    return {mean, std_dev};
+}
+
+NBodySimulator makeGpuBenchSimulator(int n_bodies, unsigned int seed, double G, double epsilon) {
+    NBodySimulator sim(G, epsilon);
+    sim.initializeRandom(n_bodies, seed, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+    return sim;
+}
+
+} 
+
+GpuBenchmarkResult Benchmark::benchmarkKernelOnly(int n_bodies, int variant, int block_size,
+                                                  unsigned int seed, double G, double epsilon) {
+    GpuBenchmarkResult result;
+    result.n_bodies = n_bodies;
+    result.variant = variant;
+    result.block_size = block_size;
+
+    NBodySimulator sim = makeGpuBenchSimulator(n_bodies, seed, G, epsilon);
+
+    sim.uploadGpuBuffers();
+
+    std::vector<double> times(repetitions);
+    for (int r = 0; r < repetitions; ++r) {
+        const auto t0 = std::chrono::steady_clock::now();
+        sim.computeAccelerationsGpuKernelOnly(variant, block_size);
+        const auto t1 = std::chrono::steady_clock::now();
+        times[r] = std::chrono::duration<double>(t1 - t0).count();
+    }
+
+    sim.downloadGpuAccelerations();
+
+    std::tie(result.mean_time, result.std_dev) = meanAndStdDev(times);
+    return result;
+}
+
+GpuBenchmarkResult Benchmark::benchmarkEndToEnd(int n_bodies, int variant, int block_size,
+                                                unsigned int seed, double G, double epsilon) {
+    GpuBenchmarkResult result;
+    result.n_bodies = n_bodies;
+    result.variant = variant;
+    result.block_size = block_size;
+
+    NBodySimulator sim = makeGpuBenchSimulator(n_bodies, seed, G, epsilon);
+
+    std::vector<double> times(repetitions);
+    for (int r = 0; r < repetitions; ++r) {
+        const auto t0 = std::chrono::steady_clock::now();
+        sim.computeAccelerationsGpu(variant, block_size);
+        const auto t1 = std::chrono::steady_clock::now();
+        times[r] = std::chrono::duration<double>(t1 - t0).count();
+    }
+
+    std::tie(result.mean_time, result.std_dev) = meanAndStdDev(times);
+    return result;
+}
+
+CpuGpuComparison Benchmark::compareCpuGpu(int n_bodies, int variant, int block_size,
+                                          unsigned int seed, double G, double epsilon) {
+    CpuGpuComparison cmp;
+    cmp.n_bodies = n_bodies;
+
+    NBodySimulator cpuSim = makeGpuBenchSimulator(n_bodies, seed, G, epsilon);
+    std::vector<double> cpu_times(repetitions);
+    for (int r = 0; r < repetitions; ++r) {
+        const auto t0 = std::chrono::steady_clock::now();
+        cpuSim.computeAccelerationsSoA();
+        const auto t1 = std::chrono::steady_clock::now();
+        cpu_times[r] = std::chrono::duration<double>(t1 - t0).count();
+    }
+    std::tie(cmp.cpu_mean, cmp.cpu_std) = meanAndStdDev(cpu_times);
+
+    const GpuBenchmarkResult gpu = benchmarkEndToEnd(n_bodies, variant, block_size, seed, G, epsilon);
+    cmp.gpu_mean = gpu.mean_time;
+    cmp.gpu_std = gpu.std_dev;
+
+    cmp.speedup = cmp.cpu_mean / cmp.gpu_mean;
+    const double rel_err_cpu = cmp.cpu_std / cmp.cpu_mean;
+    const double rel_err_gpu = cmp.gpu_std / cmp.gpu_mean;
+    cmp.speedup_err = cmp.speedup * std::sqrt(rel_err_cpu * rel_err_cpu + rel_err_gpu * rel_err_gpu);
+
+    return cmp;
 }
