@@ -45,16 +45,26 @@ public:
     }
 
     void copyHostToDevice(const double* h_x, const double* h_y, const double* h_mass, size_t count) {
-        if (count > size_) {
+        if (count > capacity_) {
             allocate(count);
-        }
-        if (count > 0) {
-            d_x.copyFromHost(h_x, count);
-            d_y.copyFromHost(h_y, count);
-            d_mass.copyFromHost(h_mass, count);
-            is_device_inputs_synced_ = true;
+        } else {
+            size_ = count;
+            is_device_inputs_synced_ = false;
             is_host_outputs_synced_ = false;
         }
+
+        if (count == 0) {
+            return;
+        }
+        if (h_x == nullptr || h_y == nullptr || h_mass == nullptr) {
+            throw std::invalid_argument("CudaDeviceSoA::copyHostToDevice: punteros host nulos con count > 0");
+        }
+
+        d_x.copyFromHost(h_x, count);
+        d_y.copyFromHost(h_y, count);
+        d_mass.copyFromHost(h_mass, count);
+        is_device_inputs_synced_ = true;
+        is_host_outputs_synced_ = false;
     }
 
     void copyHostToDevice(const std::vector<double>& h_x,
