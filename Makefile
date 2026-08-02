@@ -27,7 +27,7 @@ OBJS = $(SRCS:.cpp=.o)
 ifneq ($(CU_SOURCES),)
 ifeq ($(NVCC_AVAILABLE),1)
 OBJS += $(CU_OBJS)
-LDFLAGS += -lcudart
+LDFLAGS += -L/usr/local/cuda/lib64 -lcudart
 else
 $(warning CUDA kernels found but '$(NVCC)' is not available; building CPU-only target)
 endif
