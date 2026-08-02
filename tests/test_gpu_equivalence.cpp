@@ -1,8 +1,8 @@
 #include <gtest/gtest.h>
 #include <cmath>
 #include <vector>
+#include <string>
 #include "gpu_test_helpers.h"
-#include "../Particle.h"
 #include "../NBodySimulator.h"
 #include "../MetricsCalculator.h"
 
