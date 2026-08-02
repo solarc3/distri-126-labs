@@ -4,11 +4,14 @@
 
 | Miembro        | Rol / Contribucion                        |
 |----------------|-------------------------------------------|
-| **Benjamín Bustamante**   | Modelo y datos |
-| **Ignacio Solar**   | Nucleo paralelo |
-| **Fabián Lizama**   | Integracion y fisica |
-| **Benjamín Sepúlveda**   | Metricas y benchmarks |
-| **Josepha Gaete**   | Calidad, CI y visualizacion |
+| **Benjamín Bustamante**   | Host/device y
+memoria R2 |
+| **Ignacio Solar**   | Kernels CUDA R1 |
+| **Fabián Lizama**   | Git, releases y
+agentes R4 |
+| **Benjamín Sepúlveda**   | Integración y
+validación R3 |
+| **Josepha Gaete**   | Calidad, CI y visualizacion R5 |
 
 ## Kanban Lab 2 CUDA — Sub-issues y responsables
 
