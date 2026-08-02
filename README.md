@@ -10,6 +10,23 @@
 | **Benjamín Sepúlveda**   | Metricas y benchmarks |
 | **Josepha Gaete**   | Calidad, CI y visualizacion |
 
+## Kanban Lab 2 CUDA — Sub-issues y responsables
+
+Desglose propuesto para cerrar la organización del issue #14, alineado con los roles del equipo:
+
+| Sub-issue | Alcance | Responsable sugerido |
+|-----------|---------|----------------------|
+| 14-1 | [R5] Docker CUDA base oficial + build con `nvcc` (ref. #8) | **Josepha Gaete** (Calidad, CI y visualizacion) |
+| 14-2 | [R2] Capa host/device (SoA + buffers RAII) + contrato de buffers/transferencias | **Benjamín Bustamante** (Modelo y datos) |
+| 14-3 | [R1] Kernel CUDA básico de aceleraciones + firma final kernel/launcher | **Ignacio Solar** (Nucleo paralelo) |
+| 14-4 | [R3] Integrar `computeAccelerationsGpu(...)` y `stepEulerGpu()` al simulador | **Fabián Lizama** (Integracion y fisica) |
+| 14-5 | [R3] `calculateEnergyGpu()` (reducción + `atomicAdd`) | **Fabián Lizama** (Integracion y fisica) |
+| 14-6 | [R3] Harness y tests CPU vs GPU (`N=2`, `N=3`, regresión completa; ref. #7) | **Josepha Gaete** (Calidad, CI y visualizacion) |
+| 14-7 | [R1] Kernel con shared memory (tiles + sincronización) | **Ignacio Solar** (Nucleo paralelo) |
+| 14-8 | [R5] Benchmarks (kernel-only, end-to-end, sweep `blockDim.x`) | **Benjamín Sepúlveda** (Metricas y benchmarks) |
+| 14-9 | [R4] Checklist DoD por PR + gate CI obligatorio + cierre formal flujo Git/roles/agentes (ref. #1) | **Josepha Gaete** (Calidad, CI y visualizacion) |
+| 14-10 | [R4] Actualizar `README.md` y `CHANGELOG.md` con resultados finales | **Benjamín Sepúlveda** (Metricas y benchmarks) |
+
 ## Decisiones de Diseno
 
 ### Arquitectura Orientada a Objetos
