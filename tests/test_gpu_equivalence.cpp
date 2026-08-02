@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <cmath>
+#include <stdexcept>
 #include <vector>
 #include <string>
 #include "gpu_test_helpers.h"
@@ -188,6 +189,32 @@ TEST(GpuEquivalence, EnergyAtomicVsCpu) {
     EXPECT_TRUE(compareFloat(cpuU, gpuU))
         << "U cpu=" << cpuU << " gpu(atomic)=" << gpuU;
 }
+
+TEST(GpuEquivalence, EnergyEmptySystemReturnsZero) {
+    NBodySimulator sim(1.0, 0.1);
+
+    double k0 = 0.0, u0 = 0.0;
+    double k1 = 0.0, u1 = 0.0;
+
+    sim.calculateEnergyGpu(k0, u0, 0);
+    EXPECT_DOUBLE_EQ(k0, 0.0);
+    EXPECT_DOUBLE_EQ(u0, 0.0);
+
+    sim.calculateEnergyGpu(k1, u1, 1);
+    EXPECT_DOUBLE_EQ(k1, 0.0);
+    EXPECT_DOUBLE_EQ(u1, 0.0);
+}
+
+#if defined(NBODY_ENABLE_CUDA_KERNELS)
+TEST(GpuEquivalence, EnergyInvalidMethodThrows) {
+    const int N = 10;
+    NBodySimulator sim(1.0, 0.1);
+    sim.initializeRandom(N, 1000, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    double k = 0.0, u = 0.0;
+    EXPECT_THROW(sim.calculateEnergyGpu(k, u, 999), std::runtime_error);
+}
+#endif
 
 TEST(GpuEquivalence, PhysicalInvariantsGpu) {
     HarnessConfig cfg;

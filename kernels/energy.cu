@@ -171,10 +171,22 @@ void launchComputeEnergy(const double* d_x, const double* d_y,
             std::string("launchComputeEnergy: cudaMalloc d_U failed - ")
             + cudaGetErrorString(alloc_err));
     }
-    cudaMemset(d_K, 0, sizeof(double));
-    cudaMemset(d_U, 0, sizeof(double));
 
     cudaError_t err;
+    err = cudaMemset(d_K, 0, sizeof(double));
+    if (err != cudaSuccess) {
+        cudaFree(d_K); cudaFree(d_U);
+        throw std::runtime_error(
+            std::string("launchComputeEnergy: cudaMemset d_K failed - ")
+            + cudaGetErrorString(err));
+    }
+    err = cudaMemset(d_U, 0, sizeof(double));
+    if (err != cudaSuccess) {
+        cudaFree(d_K); cudaFree(d_U);
+        throw std::runtime_error(
+            std::string("launchComputeEnergy: cudaMemset d_U failed - ")
+            + cudaGetErrorString(err));
+    }
 
     if (method == 1) {
         // Variante con atomicAdd directo en memoria global
@@ -225,10 +237,28 @@ void launchComputeEnergy(const double* d_x, const double* d_y,
             + std::to_string(method));
     }
 
-    cudaDeviceSynchronize();
+    err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        cudaFree(d_K); cudaFree(d_U);
+        throw std::runtime_error(
+            std::string("launchComputeEnergy: cudaDeviceSynchronize failed - ")
+            + cudaGetErrorString(err));
+    }
 
-    cudaMemcpy(h_kinetic, d_K, sizeof(double), cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_potential, d_U, sizeof(double), cudaMemcpyDeviceToHost);
+    err = cudaMemcpy(h_kinetic, d_K, sizeof(double), cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) {
+        cudaFree(d_K); cudaFree(d_U);
+        throw std::runtime_error(
+            std::string("launchComputeEnergy: cudaMemcpy kinetic failed - ")
+            + cudaGetErrorString(err));
+    }
+    err = cudaMemcpy(h_potential, d_U, sizeof(double), cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) {
+        cudaFree(d_K); cudaFree(d_U);
+        throw std::runtime_error(
+            std::string("launchComputeEnergy: cudaMemcpy potential failed - ")
+            + cudaGetErrorString(err));
+    }
 
     cudaFree(d_K);
     cudaFree(d_U);
