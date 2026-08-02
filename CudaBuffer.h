@@ -112,9 +112,16 @@ public:
         if (count > size_) {
             throw std::out_of_range("CudaBuffer::copyFromHost: la cantidad de elementos excede el tamaño del buffer");
         }
-        if (count > 0 && host_ptr != nullptr && d_ptr_ != nullptr) {
-            CUDA_CHECK(cudaMemcpy(d_ptr_, host_ptr, count * sizeof(T), cudaMemcpyHostToDevice));
+        if (count == 0) {
+            return;
         }
+        if (host_ptr == nullptr) {
+            throw std::invalid_argument("CudaBuffer::copyFromHost: host_ptr es null con count > 0");
+        }
+        if (d_ptr_ == nullptr) {
+            throw std::logic_error("CudaBuffer::copyFromHost: buffer no asignado con count > 0");
+        }
+        CUDA_CHECK(cudaMemcpy(d_ptr_, host_ptr, count * sizeof(T), cudaMemcpyHostToDevice));
     }
 
     void copyFromHost(const T* host_ptr) {
