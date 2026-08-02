@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <cmath>
+#include <stdexcept>
 #include <vector>
 #include <string>
 #include "gpu_test_helpers.h"
@@ -90,6 +91,7 @@ TEST(GpuTestHarness, CompareFloatArraySizeMismatch) {
 // NOTA: Las funciones computeAccelerationsGpu(), stepEulerGpu() y
 // calculateEnergyGpu() ya estan implementadas en NBodySimulator y
 // delegadas desde cpu_gpu_harness.h.
+// calculateEnergyGpu() soporta method=0 (shared memory) y method=1 (atomic).
 
 TEST(GpuEquivalence, AccelerationsN2) {
     HarnessConfig cfg;
@@ -155,6 +157,64 @@ TEST(GpuEquivalence, EnergyEquivalenceGpu) {
     EXPECT_TRUE(r.allOk) << r.firstMismatch;
     EXPECT_EQ(r.mismatchCount, 0u);
 }
+
+TEST(GpuEquivalence, EnergyMethod1VsMethod0) {
+    const int N = 100;
+    NBodySimulator sim(1.0, 0.1);
+    sim.initializeRandom(N, 800, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    double k0 = 0.0, u0 = 0.0;
+    double k1 = 0.0, u1 = 0.0;
+
+    sim.calculateEnergyGpu(k0, u0, 0);
+    sim.calculateEnergyGpu(k1, u1, 1);
+
+    EXPECT_TRUE(compareFloat(k0, k1)) << "K: method0=" << k0 << " method1=" << k1;
+    EXPECT_TRUE(compareFloat(u0, u1)) << "U: method0=" << u0 << " method1=" << u1;
+}
+
+TEST(GpuEquivalence, EnergyAtomicVsCpu) {
+    const int N = 100;
+    NBodySimulator sim(1.0, 0.1);
+    sim.initializeRandom(N, 900, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    double cpuK = 0.0, cpuU = 0.0;
+    double gpuK = 0.0, gpuU = 0.0;
+
+    sim.calculateEnergy(cpuK, cpuU);
+    sim.calculateEnergyGpu(gpuK, gpuU, 1);
+
+    EXPECT_TRUE(compareFloat(cpuK, gpuK))
+        << "K cpu=" << cpuK << " gpu(atomic)=" << gpuK;
+    EXPECT_TRUE(compareFloat(cpuU, gpuU))
+        << "U cpu=" << cpuU << " gpu(atomic)=" << gpuU;
+}
+
+TEST(GpuEquivalence, EnergyEmptySystemReturnsZero) {
+    NBodySimulator sim(1.0, 0.1);
+
+    double k0 = 0.0, u0 = 0.0;
+    double k1 = 0.0, u1 = 0.0;
+
+    sim.calculateEnergyGpu(k0, u0, 0);
+    EXPECT_DOUBLE_EQ(k0, 0.0);
+    EXPECT_DOUBLE_EQ(u0, 0.0);
+
+    sim.calculateEnergyGpu(k1, u1, 1);
+    EXPECT_DOUBLE_EQ(k1, 0.0);
+    EXPECT_DOUBLE_EQ(u1, 0.0);
+}
+
+#if defined(NBODY_ENABLE_CUDA_KERNELS)
+TEST(GpuEquivalence, EnergyInvalidMethodThrows) {
+    const int N = 10;
+    NBodySimulator sim(1.0, 0.1);
+    sim.initializeRandom(N, 1000, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    double k = 0.0, u = 0.0;
+    EXPECT_THROW(sim.calculateEnergyGpu(k, u, 999), std::runtime_error);
+}
+#endif
 
 TEST(GpuEquivalence, PhysicalInvariantsGpu) {
     HarnessConfig cfg;
@@ -237,12 +297,14 @@ TEST(HarnessConsistency, DifferentSeedsProduceDifferentStates) {
             pA[i].getY() != pB[i].getY() ||
             pA[i].getVx() != pB[i].getVx() ||
             pA[i].getVy() != pB[i].getVy() ||
+            pA[i].getAx() != pB[i].getAx() ||
+            pA[i].getAy() != pB[i].getAy() ||
             pA[i].getMass() != pB[i].getMass()) {
             anyDifferent = true;
             break;
         }
     }
-    EXPECT_TRUE(anyDifferent) << "Semillas distintas deberian generar estados distintos";
+    EXPECT_TRUE(anyDifferent) << "Different seeds should produce different states";
 }
 
 TEST(HarnessConsistency, SameSeedProducesIdenticalStates) {
@@ -271,6 +333,8 @@ TEST(HarnessConsistency, SameSeedProducesIdenticalStates) {
         EXPECT_DOUBLE_EQ(pA[i].getY(), pB[i].getY());
         EXPECT_DOUBLE_EQ(pA[i].getVx(), pB[i].getVx());
         EXPECT_DOUBLE_EQ(pA[i].getVy(), pB[i].getVy());
+        EXPECT_DOUBLE_EQ(pA[i].getAx(), pB[i].getAx());
+        EXPECT_DOUBLE_EQ(pA[i].getAy(), pB[i].getAy());
         EXPECT_DOUBLE_EQ(pA[i].getMass(), pB[i].getMass());
     }
 }

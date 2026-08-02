@@ -94,6 +94,49 @@ __global__ void computePotentialEnergyKernel(const double* d_x,
     }
 }
 
+// ============================================================================
+// Variante atomic: cada hilo acumula directamente en memoria global via
+// atomicAddDouble. Mayor contention que shared memory, util para benchmark
+// de estrategias de reduccion.
+// ============================================================================
+
+__global__ void computeKineticEnergyAtomicKernel(const double* d_vx,
+                                                  const double* d_vy,
+                                                  const double* d_mass,
+                                                  int n,
+                                                  double* d_result)
+{
+    const int i = blockIdx.x * kBlockSize + threadIdx.x;
+    if (i < n) {
+        double val = 0.5 * d_mass[i] * (d_vx[i] * d_vx[i] + d_vy[i] * d_vy[i]);
+        atomicAddDouble(d_result, val);
+    }
+}
+
+__global__ void computePotentialEnergyAtomicKernel(const double* d_x,
+                                                    const double* d_y,
+                                                    const double* d_mass,
+                                                    int n,
+                                                    double G,
+                                                    double eps2,
+                                                    double* d_result)
+{
+    const int i = blockIdx.x * kBlockSize + threadIdx.x;
+    if (i < n) {
+        const double xi = d_x[i];
+        const double yi = d_y[i];
+        const double mi = d_mass[i];
+        double val = 0.0;
+        for (int j = i + 1; j < n; ++j) {
+            const double dx = d_x[j] - xi;
+            const double dy = d_y[j] - yi;
+            const double dist = sqrt(dx * dx + dy * dy + eps2);
+            val -= G * mi * d_mass[j] / dist;
+        }
+        atomicAddDouble(d_result, val);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Launcher: asigna buffer de resultado en device, lanza kernels,
 // sincroniza y copia de vuelta al host.
@@ -110,40 +153,112 @@ void launchComputeEnergy(const double* d_x, const double* d_y,
         *h_potential = 0.0;
         return;
     }
-    (void)method;
 
     const int grid = (n + kBlockSize - 1) / kBlockSize;
 
     double* d_K = nullptr;
     double* d_U = nullptr;
-    cudaMalloc(&d_K, sizeof(double));
-    cudaMalloc(&d_U, sizeof(double));
-    cudaMemset(d_K, 0, sizeof(double));
-    cudaMemset(d_U, 0, sizeof(double));
+    cudaError_t alloc_err = cudaMalloc(&d_K, sizeof(double));
+    if (alloc_err != cudaSuccess) {
+        throw std::runtime_error(
+            std::string("launchComputeEnergy: cudaMalloc d_K failed - ")
+            + cudaGetErrorString(alloc_err));
+    }
+    alloc_err = cudaMalloc(&d_U, sizeof(double));
+    if (alloc_err != cudaSuccess) {
+        cudaFree(d_K);
+        throw std::runtime_error(
+            std::string("launchComputeEnergy: cudaMalloc d_U failed - ")
+            + cudaGetErrorString(alloc_err));
+    }
 
-    computeKineticEnergyKernel<<<grid, kBlockSize>>>(d_vx, d_vy, d_mass, n, d_K);
-    cudaError_t err = cudaGetLastError();
+    cudaError_t err;
+    err = cudaMemset(d_K, 0, sizeof(double));
     if (err != cudaSuccess) {
         cudaFree(d_K); cudaFree(d_U);
         throw std::runtime_error(
-            std::string("launchComputeEnergy: error kinetic kernel - ")
+            std::string("launchComputeEnergy: cudaMemset d_K failed - ")
             + cudaGetErrorString(err));
     }
-
-    computePotentialEnergyKernel<<<grid, kBlockSize>>>(
-        d_x, d_y, d_mass, n, G, eps2, d_U);
-    err = cudaGetLastError();
+    err = cudaMemset(d_U, 0, sizeof(double));
     if (err != cudaSuccess) {
         cudaFree(d_K); cudaFree(d_U);
         throw std::runtime_error(
-            std::string("launchComputeEnergy: error potential kernel - ")
+            std::string("launchComputeEnergy: cudaMemset d_U failed - ")
             + cudaGetErrorString(err));
     }
 
-    cudaDeviceSynchronize();
+    if (method == 1) {
+        // Variante con atomicAdd directo en memoria global
+        computeKineticEnergyAtomicKernel<<<grid, kBlockSize>>>(
+            d_vx, d_vy, d_mass, n, d_K);
+        err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            cudaFree(d_K); cudaFree(d_U);
+            throw std::runtime_error(
+                std::string("launchComputeEnergy: error atomic kinetic kernel - ")
+                + cudaGetErrorString(err));
+        }
 
-    cudaMemcpy(h_kinetic, d_K, sizeof(double), cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_potential, d_U, sizeof(double), cudaMemcpyDeviceToHost);
+        computePotentialEnergyAtomicKernel<<<grid, kBlockSize>>>(
+            d_x, d_y, d_mass, n, G, eps2, d_U);
+        err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            cudaFree(d_K); cudaFree(d_U);
+            throw std::runtime_error(
+                std::string("launchComputeEnergy: error atomic potential kernel - ")
+                + cudaGetErrorString(err));
+        }
+    } else if (method == 0) {
+        // metodo 0 (default): reduccion en shared memory
+        computeKineticEnergyKernel<<<grid, kBlockSize>>>(
+            d_vx, d_vy, d_mass, n, d_K);
+        err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            cudaFree(d_K); cudaFree(d_U);
+            throw std::runtime_error(
+                std::string("launchComputeEnergy: error kinetic kernel - ")
+                + cudaGetErrorString(err));
+        }
+
+        computePotentialEnergyKernel<<<grid, kBlockSize>>>(
+            d_x, d_y, d_mass, n, G, eps2, d_U);
+        err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            cudaFree(d_K); cudaFree(d_U);
+            throw std::runtime_error(
+                std::string("launchComputeEnergy: error potential kernel - ")
+                + cudaGetErrorString(err));
+        }
+    } else {
+        cudaFree(d_K); cudaFree(d_U);
+        throw std::runtime_error(
+            std::string("launchComputeEnergy: invalid method ")
+            + std::to_string(method));
+    }
+
+    err = cudaDeviceSynchronize();
+    if (err != cudaSuccess) {
+        cudaFree(d_K); cudaFree(d_U);
+        throw std::runtime_error(
+            std::string("launchComputeEnergy: cudaDeviceSynchronize failed - ")
+            + cudaGetErrorString(err));
+    }
+
+    err = cudaMemcpy(h_kinetic, d_K, sizeof(double), cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) {
+        cudaFree(d_K); cudaFree(d_U);
+        throw std::runtime_error(
+            std::string("launchComputeEnergy: cudaMemcpy kinetic failed - ")
+            + cudaGetErrorString(err));
+    }
+    err = cudaMemcpy(h_potential, d_U, sizeof(double), cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) {
+        cudaFree(d_K); cudaFree(d_U);
+        throw std::runtime_error(
+            std::string("launchComputeEnergy: cudaMemcpy potential failed - ")
+            + cudaGetErrorString(err));
+    }
 
     cudaFree(d_K);
     cudaFree(d_U);
