@@ -258,7 +258,7 @@ TEST_P(GpuEquivalenceParameterized, MultiStepScale) {
 INSTANTIATE_TEST_SUITE_P(
     SweepN,
     GpuEquivalenceParameterized,
-    ::testing::Values(2, 3, 4, 5, 10, 50, 100, 200)
+    ::testing::Values(2, 3, 4, 5, 10, 50, 100, 200, 257, 512, 1000, 2000)
 );
 
 // ---------------------------------------------------------------------------
