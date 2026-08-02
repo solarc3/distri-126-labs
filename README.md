@@ -167,10 +167,57 @@ make analysis
 ```
 
 ### Docker
+
+El `Dockerfile` usa la imagen base oficial sugerida por el enunciado,
+`nvidia/cuda:12.4.1-devel-ubuntu22.04` (incluye CUDA Toolkit 12.4 y `nvcc`).
+El build sigue siendo CPU-only (`g++`) porque aún no hay kernels en
+`kernels/`; en cuanto el rol de Kernels CUDA agregue archivos `.cu`, el
+`Makefile` los detecta automáticamente (`wildcard kernels/*.cu`) y los
+compila con `nvcc`, linkeando con `-lcudart`.
+
+**Requisitos en el host:**
+- Driver NVIDIA >= `550.54.14` (Linux) para CUDA 12.4. Verificar con
+  `nvidia-smi` (la fila "CUDA Version" debe ser >= 12.4).
+- [`nvidia-container-toolkit`](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+  instalado y configurado como runtime de Docker, para poder pasar `--gpus all`.
+- Sin GPU/driver NVIDIA en el host, la imagen igual compila (nvcc no
+  requiere GPU física para compilar), pero no se pueden ejecutar kernels.
+
+**Build y ejecución local:**
 ```bash
-docker build -t nbody-sim .
-docker run --rm nbody-sim make test
+docker build -t nbody-cuda .
+
+# compilar y correr la suite de tests (CPU; no requiere --gpus)
+docker run --rm nbody-cuda make test
+
+# con acceso a GPU (una vez existan tests/kernels GPU)
+docker run --rm --gpus all nbody-cuda make test
+
+# flujo por defecto de la imagen (benchmark + graficos, ver run_batch.sh)
+docker run --rm --gpus all nbody-cuda
 ```
+
+**Verificar que `nvcc` esté disponible dentro del contenedor:**
+```bash
+docker run --rm nbody-cuda make cuda-info
+```
+
+### CI / gate de fusión a `main`
+
+El pipeline (`.github/workflows/ci.yml`) corre en cada Pull Request contra
+`main`/`master` con dos jobs obligatorios:
+
+| Job | Qué valida |
+|-----|------------|
+| `build-and-test` | `make` + `make test` en un runner nativo Ubuntu (sin Docker) |
+| `docker-cuda-build` | `docker build` de la imagen CUDA + `docker run ... make test` dentro del contenedor |
+
+Ambos deben quedar en verde antes de fusionar. Para que GitHub bloquee el
+merge si la CI falla, `main` debe tener una regla de protección de rama con
+"Require status checks to pass before merging" apuntando a `build-and-test`
+y `docker-cuda-build` (Settings → Branches → Branch protection rules). Un
+job con GPU real en CI es opcional y no se usa para las mediciones finales
+de rendimiento: esas solo se aceptan desde el nodo GPU del clúster DIINF.
 
 ## Archivos de Salida
 
@@ -198,8 +245,9 @@ docker run --rm nbody-sim make test
 ├── main.cpp                 # Punto de entrada con modos fisica/benchmark
 ├── Makefile                 # Compilacion, test, benchmark, analisis
 ├── plot_performance.py      # Script de generacion de graficos
-├── Dockerfile               # Contenedor reproducible
-├── .github/                 # CI con GitHub Actions
+├── Dockerfile               # Contenedor reproducible (base nvidia/cuda + nvcc)
+├── kernels/                 # Kernels CUDA (.cu/.cuh) — Lab 2, aun sin contenido
+├── .github/                 # CI con GitHub Actions (build-and-test + docker-cuda-build)
 ├── tests/
 │   ├── test_physics.cpp         # Pruebas unitarias y de regresion con GTest
 │   ├── test_gpu_equivalence.cpp # Pruebas de equivalencia CPU vs GPU (esqueleto Lab 2)

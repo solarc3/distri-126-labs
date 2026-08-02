@@ -12,19 +12,38 @@ STD_FLAGS ?= -std=c++17
 CXXFLAGS = $(WARN_FLAGS) $(OPT_FLAGS) $(OMP_FLAGS) $(STD_FLAGS) $(MARCH_FLAGS) $(EXTRA_CXXFLAGS)
 TEST_CXXFLAGS = $(WARN_FLAGS) -Wno-unknown-pragmas $(OPT_FLAGS) $(OMP_FLAGS) $(STD_FLAGS) $(MARCH_FLAGS) $(EXTRA_CXXFLAGS)
 
+# CUDA: kernels/*.cu se compilan con nvcc y se linkean junto a los
+# objetos C++ solo cuando existen. Sin kernels, el build sigue siendo 100% CPU/g++.
+NVCC ?= nvcc
+NVCCFLAGS ?= -O3 -std=c++17 -Xcompiler -Wall,-Wextra
+CU_SOURCES := $(wildcard kernels/*.cu)
+CU_OBJS := $(CU_SOURCES:.cu=.o)
+
 TARGET = nbody_sim
 SRCS = main.cpp Particle.cpp NBodySimulator.cpp Integrator.cpp Benchmark.cpp MetricsCalculator.cpp Visualizer.cpp
 OBJS = $(SRCS:.cpp=.o)
 
-.PHONY: all benchmark benchmark-all analysis clean test test-cuda-buffer test-cuda-soa vec-report profile
+ifneq ($(CU_SOURCES),)
+OBJS += $(CU_OBJS)
+LDFLAGS += -lcudart
+endif
+
+.PHONY: all benchmark benchmark-all analysis clean test test-cuda-buffer test-cuda-soa vec-report profile cuda-info
 
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJS)
+	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJS) $(LDFLAGS)
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+kernels/%.o: kernels/%.cu
+	$(NVCC) $(NVCCFLAGS) -c $< -o $@
+
+cuda-info:
+	@command -v $(NVCC) >/dev/null 2>&1 && $(NVCC) --version || \
+		(echo "nvcc no encontrado: instala CUDA Toolkit o usa el Dockerfile CUDA del repo" && exit 1)
 
 benchmark: $(TARGET)
 	./$(TARGET) --benchmark $(ARGS)
@@ -52,7 +71,7 @@ profile: EXTRA_CXXFLAGS += -g -fno-omit-frame-pointer
 profile: clean $(TARGET)
 
 clean:
-	rm -f $(OBJS) $(TARGET) *.dat run_tests *.png vec_*.log
+	rm -f $(OBJS) $(CU_OBJS) $(TARGET) *.dat run_tests *.png vec_*.log
 
 TEST_TARGET = run_tests
 TEST_SOURCES = tests/test_physics.cpp tests/test_gpu_equivalence.cpp Particle.cpp NBodySimulator.cpp Integrator.cpp MetricsCalculator.cpp Visualizer.cpp
