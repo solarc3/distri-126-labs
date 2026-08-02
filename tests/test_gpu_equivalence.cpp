@@ -248,7 +248,7 @@ TEST(GpuEquivalence, RegressionFullSystem) {
     }
 }
 
-TEST(GpuEquivalence, EnergyConservationGpu) {
+TEST(GpuEquivalence, EnergyEquivalenceGpu) {
     NBodySimulator cpuSim(1.0, 0.1);
     NBodySimulator gpuSim(1.0, 0.1);
 
