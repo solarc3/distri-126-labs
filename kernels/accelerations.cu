@@ -18,6 +18,7 @@ __global__ void computeAccelerationsKernel(const double* __restrict__ d_x,
     const double yi = d_y[i];
     double ax = 0.0, ay = 0.0;
     for (int j = 0; j < n; ++j) {
+        if (eps2 == 0.0 && j == i) continue;
         const double dx = d_x[j] - xi;
         const double dy = d_y[j] - yi;
         const double r2 = dx * dx + dy * dy + eps2;
@@ -41,7 +42,7 @@ void launchComputeAccelerations(const double* d_x, const double* d_y,
                                 int variant, int block_size)
 {
     if (n == 0) return;
-    assert(eps2 > 0.0);
+    assert(eps2 >= 0.0);
     (void)variant;
 
     if (block_size <= 0) block_size = kDefaultBlockSize;
