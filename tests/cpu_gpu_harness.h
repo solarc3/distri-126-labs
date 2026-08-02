@@ -75,8 +75,7 @@ inline void calculateEnergyCpu(NBodySimulator& sim, double& kinetic, double& pot
 }
 
 inline void calculateEnergyGpu(NBodySimulator& sim, double& kinetic, double& potential) {
-    // TODO(gpu): reemplazar cuando R1 entregue calculateEnergyGpu()
-    sim.calculateEnergy(kinetic, potential);
+    sim.calculateEnergyGpu(kinetic, potential);
 }
 
 // ---------------------------------------------------------------------------

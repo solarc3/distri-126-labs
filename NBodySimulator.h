@@ -82,6 +82,10 @@ public:
     void calculateEnergy(double& kinetic, double& potential, int method);
     void calculateEnergy(double& kinetic, double& potential, int method, bool use_private);
 
+    // ---- GPU energy ----
+    // method: 0 = reduccion en shared memory (kernel GPU)
+    void calculateEnergyGpu(double& kinetic, double& potential, int method = 0);
+
     // --- Benchmarks de sincronización con contención real ---
     // sync_method: 0=critical, 1=atomic, 2=reduction
     // Retorna la energía cinética total (para forzar al compilador a mantener el código)
