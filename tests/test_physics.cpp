@@ -242,8 +242,9 @@ TEST(OpenMPOverloadTest, KernelIntegrationTransferKeepsResultsCorrect) {
         auto initial = makeTestParticles(40);
         auto updated = initial;
         for (size_t i = 0; i < updated.size(); ++i) {
-            updated[i].x += 3.0 + 0.02 * static_cast<double>(i);
-            updated[i].y -= 1.5 - 0.01 * static_cast<double>(i);
+            const double new_x = updated[i].getX() + 3.0 + 0.02 * static_cast<double>(i);
+            const double new_y = updated[i].getY() - (1.5 - 0.01 * static_cast<double>(i));
+            updated[i] = Particle(new_x, new_y, updated[i].getVx(), updated[i].getVy(), updated[i].getMass());
         }
 
         NBodySimulator sim(1.0, 0.1);
@@ -276,7 +277,6 @@ TEST(OpenMPOverloadTest, KernelIntegrationTransferKeepsResultsCorrect) {
         }
         EXPECT_TRUE(changed);
     }
-}
 
 TEST(OpenMPOverloadTest, IntegrateSyncTypesProduceSameResult) {
     double dt = 0.01;
