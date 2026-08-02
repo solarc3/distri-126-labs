@@ -62,11 +62,11 @@ test: $(TEST_SOURCES)
 	./$(TEST_TARGET)
 
 test-cuda-buffer: tests/test_cuda_buffer.cpp CudaBuffer.h
-	$(CXX) $(TEST_CXXFLAGS) -o run_test_cuda_buffer tests/test_cuda_buffer.cpp
+	$(CXX) $(TEST_CXXFLAGS) -o run_test_cuda_buffer tests/test_cuda_buffer.cpp $(LDFLAGS)
 	./run_test_cuda_buffer
 	rm -f run_test_cuda_buffer
 
 test-cuda-soa: tests/test_cuda_device_soa.cpp CudaDeviceSoA.h CudaBuffer.h
-	$(CXX) $(TEST_CXXFLAGS) -o run_test_cuda_soa tests/test_cuda_device_soa.cpp
+	$(CXX) $(TEST_CXXFLAGS) -o run_test_cuda_soa tests/test_cuda_device_soa.cpp $(LDFLAGS)
 	./run_test_cuda_soa
 	rm -f run_test_cuda_soa
