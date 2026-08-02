@@ -59,9 +59,7 @@ inline void computeStepCpu(NBodySimulator& sim, double dt) {
 }
 
 inline void computeStepGpu(NBodySimulator& sim, double dt) {
-    // TODO(gpu): reemplazar cuando R1 entregue stepEulerGpu(dt)
-    sim.computeAccelerations();
-    sim.integrate(dt);
+    sim.stepEulerGpu(dt);
 }
 
 inline void computeAccelerationsCpu(NBodySimulator& sim) {
@@ -69,8 +67,7 @@ inline void computeAccelerationsCpu(NBodySimulator& sim) {
 }
 
 inline void computeAccelerationsGpu(NBodySimulator& sim) {
-    // TODO(gpu): reemplazar cuando R1 entregue computeAccelerationsGpu()
-    sim.computeAccelerations();
+    sim.computeAccelerationsGpu();
 }
 
 inline void calculateEnergyCpu(NBodySimulator& sim, double& kinetic, double& potential) {

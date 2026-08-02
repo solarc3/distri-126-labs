@@ -1,9 +1,11 @@
 #ifndef NBODYSIMULATOR_H
 #define NBODYSIMULATOR_H
 
+#include <memory>
 #include <string>
 #include <vector>
 #include "AlignedAllocator.h"
+#include "CudaDeviceSoA.h"
 #include "NBodyConfig.h"
 #include "Particle.h"
 
@@ -19,6 +21,11 @@ private:
     // They are 64-byte aligned so the inner loop can safely use aligned SIMD loads.
     AlignedDoubleVector soa_x, soa_y, soa_mass;
     AlignedDoubleVector soa_ax, soa_ay;
+
+    // GPU device buffers (RAII, soporta compilacion sin CUDA via fallback)
+    CudaDeviceSoA deviceSoa_;
+
+    void launchGpuKernel(int n, int variant, int block_size);
 
     void ensureSoABuffers(int n);
     void syncSoAFromParticles(int n);
@@ -39,6 +46,19 @@ public:
     void computeAccelerations(int schedule_type);
     void computeAccelerations(int schedule_type, int chunk_size);
     void computeAccelerationsSoA();
+
+    // ---- GPU acceleration ----
+    // variant: 0 = kernel básico, 1 = shared memory (futuro)
+    // block_size: tamaño de bloque CUDA (default=256 si <= 0)
+    void computeAccelerationsGpu();
+    void computeAccelerationsGpu(int variant);
+    void computeAccelerationsGpu(int variant, int block_size);
+
+    // Paso completo Euler simplectico usando GPU para aceleraciones.
+    // Orden fijo del enunciado:
+    //   1. computeAccelerationsGpu() -> cudaDeviceSynchronize()
+    //   2. integrate(dt) en CPU (kick-drift)
+    void stepEulerGpu(double dt);
 
     void integrate(double dt);
 
