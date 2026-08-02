@@ -60,7 +60,6 @@ inline void computeStepCpu(NBodySimulator& sim, double dt) {
 
 inline void computeStepGpu(NBodySimulator& sim, double dt) {
     // TODO(gpu): reemplazar cuando R1 entregue stepEulerGpu(dt)
-    (void)dt;
     sim.computeAccelerations();
     sim.integrate(dt);
 }
