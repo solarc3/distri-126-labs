@@ -94,6 +94,50 @@ __global__ void computePotentialEnergyKernel(const double* d_x,
     }
 }
 
+// ============================================================================
+// Variante atomic: cada hilo acumula directamente en memoria global via
+// atomicAddDouble. Mayor contention que shared memory, util para benchmark
+// de estrategias de reduccion.
+// ============================================================================
+
+__global__ void computeKineticEnergyAtomicKernel(const double* d_vx,
+                                                  const double* d_vy,
+                                                  const double* d_mass,
+                                                  int n,
+                                                  double* d_result)
+{
+    const int i = blockIdx.x * kBlockSize + threadIdx.x;
+    if (i < n) {
+        double val = 0.5 * d_mass[i] * (d_vx[i] * d_vx[i] + d_vy[i] * d_vy[i]);
+        atomicAddDouble(d_result, val);
+    }
+}
+
+__global__ void computePotentialEnergyAtomicKernel(const double* d_x,
+                                                    const double* d_y,
+                                                    const double* d_mass,
+                                                    int n,
+                                                    double G,
+                                                    double eps2,
+                                                    double* d_result)
+{
+    const int i = blockIdx.x * kBlockSize + threadIdx.x;
+    if (i < n) {
+        const double xi = d_x[i];
+        const double yi = d_y[i];
+        const double mi = d_mass[i];
+        const double g = G;
+        double val = 0.0;
+        for (int j = i + 1; j < n; ++j) {
+            const double dx = d_x[j] - xi;
+            const double dy = d_y[j] - yi;
+            const double dist = sqrt(dx * dx + dy * dy + eps2);
+            val -= g * mi * d_mass[j] / dist;
+        }
+        atomicAddDouble(d_result, val);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Launcher: asigna buffer de resultado en device, lanza kernels,
 // sincroniza y copia de vuelta al host.
@@ -110,7 +154,6 @@ void launchComputeEnergy(const double* d_x, const double* d_y,
         *h_potential = 0.0;
         return;
     }
-    (void)method;
 
     const int grid = (n + kBlockSize - 1) / kBlockSize;
 
@@ -121,23 +164,50 @@ void launchComputeEnergy(const double* d_x, const double* d_y,
     cudaMemset(d_K, 0, sizeof(double));
     cudaMemset(d_U, 0, sizeof(double));
 
-    computeKineticEnergyKernel<<<grid, kBlockSize>>>(d_vx, d_vy, d_mass, n, d_K);
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        cudaFree(d_K); cudaFree(d_U);
-        throw std::runtime_error(
-            std::string("launchComputeEnergy: error kinetic kernel - ")
-            + cudaGetErrorString(err));
-    }
+    cudaError_t err;
 
-    computePotentialEnergyKernel<<<grid, kBlockSize>>>(
-        d_x, d_y, d_mass, n, G, eps2, d_U);
-    err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        cudaFree(d_K); cudaFree(d_U);
-        throw std::runtime_error(
-            std::string("launchComputeEnergy: error potential kernel - ")
-            + cudaGetErrorString(err));
+    if (method == 1) {
+        // Variante con atomicAdd directo en memoria global
+        computeKineticEnergyAtomicKernel<<<grid, kBlockSize>>>(
+            d_vx, d_vy, d_mass, n, d_K);
+        err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            cudaFree(d_K); cudaFree(d_U);
+            throw std::runtime_error(
+                std::string("launchComputeEnergy: error atomic kinetic kernel - ")
+                + cudaGetErrorString(err));
+        }
+
+        computePotentialEnergyAtomicKernel<<<grid, kBlockSize>>>(
+            d_x, d_y, d_mass, n, G, eps2, d_U);
+        err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            cudaFree(d_K); cudaFree(d_U);
+            throw std::runtime_error(
+                std::string("launchComputeEnergy: error atomic potential kernel - ")
+                + cudaGetErrorString(err));
+        }
+    } else {
+        // metodo 0 (default): reduccion en shared memory
+        computeKineticEnergyKernel<<<grid, kBlockSize>>>(
+            d_vx, d_vy, d_mass, n, d_K);
+        err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            cudaFree(d_K); cudaFree(d_U);
+            throw std::runtime_error(
+                std::string("launchComputeEnergy: error kinetic kernel - ")
+                + cudaGetErrorString(err));
+        }
+
+        computePotentialEnergyKernel<<<grid, kBlockSize>>>(
+            d_x, d_y, d_mass, n, G, eps2, d_U);
+        err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            cudaFree(d_K); cudaFree(d_U);
+            throw std::runtime_error(
+                std::string("launchComputeEnergy: error potential kernel - ")
+                + cudaGetErrorString(err));
+        }
     }
 
     cudaDeviceSynchronize();

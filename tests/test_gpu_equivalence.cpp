@@ -90,6 +90,7 @@ TEST(GpuTestHarness, CompareFloatArraySizeMismatch) {
 // NOTA: Las funciones computeAccelerationsGpu(), stepEulerGpu() y
 // calculateEnergyGpu() ya estan implementadas en NBodySimulator y
 // delegadas desde cpu_gpu_harness.h.
+// calculateEnergyGpu() soporta method=0 (shared memory) y method=1 (atomic).
 
 TEST(GpuEquivalence, AccelerationsN2) {
     HarnessConfig cfg;
@@ -154,6 +155,38 @@ TEST(GpuEquivalence, EnergyEquivalenceGpu) {
     auto r = compareEnergy(cfg);
     EXPECT_TRUE(r.allOk) << r.firstMismatch;
     EXPECT_EQ(r.mismatchCount, 0u);
+}
+
+TEST(GpuEquivalence, EnergyMethod1VsMethod0) {
+    const int N = 100;
+    NBodySimulator sim(1.0, 0.1);
+    sim.initializeRandom(N, 800, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    double k0 = 0.0, u0 = 0.0;
+    double k1 = 0.0, u1 = 0.0;
+
+    sim.calculateEnergyGpu(k0, u0, 0);
+    sim.calculateEnergyGpu(k1, u1, 1);
+
+    EXPECT_TRUE(compareFloat(k0, k1)) << "K: method0=" << k0 << " method1=" << k1;
+    EXPECT_TRUE(compareFloat(u0, u1)) << "U: method0=" << u0 << " method1=" << u1;
+}
+
+TEST(GpuEquivalence, EnergyAtomicVsCpu) {
+    const int N = 100;
+    NBodySimulator sim(1.0, 0.1);
+    sim.initializeRandom(N, 900, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    double cpuK = 0.0, cpuU = 0.0;
+    double gpuK = 0.0, gpuU = 0.0;
+
+    sim.calculateEnergy(cpuK, cpuU);
+    sim.calculateEnergyGpu(gpuK, gpuU, 1);
+
+    EXPECT_TRUE(compareFloat(cpuK, gpuK))
+        << "K cpu=" << cpuK << " gpu(atomic)=" << gpuK;
+    EXPECT_TRUE(compareFloat(cpuU, gpuU))
+        << "U cpu=" << cpuU << " gpu(atomic)=" << gpuU;
 }
 
 TEST(GpuEquivalence, PhysicalInvariantsGpu) {
