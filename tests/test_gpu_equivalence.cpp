@@ -87,7 +87,7 @@ TEST(GpuTestHarness, CompareFloatArraySizeMismatch) {
 // ---------------------------------------------------------------------------
 // Tests de equivalencia CPU vs GPU usando el harness
 // ---------------------------------------------------------------------------
-// NOTA: Las funciones computeAccelerationsGpu(), stepEulerGpu() y
+// NOTA: Las funciones computeAccelerationsGpu(), computeStepGpu() y
 // calculateEnergyGpu() estan marcadas con TODO(gpu) en cpu_gpu_harness.h.
 // Actualmente delegan en la implementacion CPU. Cuando R1/R2 entreguen los
 // kernels CUDA, solo hay que reemplazar los cuerpos de esas funciones en
