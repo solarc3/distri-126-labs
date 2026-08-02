@@ -236,7 +236,9 @@ TEST(OpenMPOverloadTest, SoAProducesSameResult) {
         EXPECT_NEAR(rp[i].getAy(), sp[i].getAy(), 1e-9) << "particle " << i;
     }
 
-    TEST(OpenMPOverloadTest, KernelIntegrationTransferKeepsResultsCorrect) {
+}
+
+TEST(OpenMPOverloadTest, KernelIntegrationTransferKeepsResultsCorrect) {
         auto initial = makeTestParticles(40);
         auto updated = initial;
         for (size_t i = 0; i < updated.size(); ++i) {
