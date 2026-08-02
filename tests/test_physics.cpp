@@ -5,6 +5,8 @@
 #include "../NBodySimulator.h"
 #include "../MetricsCalculator.h"
 #include "../Integrator.h"
+#include "gpu_test_helpers.h"
+#include "cpu_gpu_harness.h"
 
 TEST(PhysicsTest, AnalyticalForceTwoBodies) {
     NBodySimulator sys(1.0, 0.1);
@@ -369,4 +371,165 @@ TEST(OpenMPOverloadTest, LastprivateReturnsLastParticle) {
     EXPECT_DOUBLE_EQ(expected_last.getX(), result.getX());
     EXPECT_DOUBLE_EQ(expected_last.getY(), result.getY());
     EXPECT_DOUBLE_EQ(expected_last.getMass(), result.getMass());
+}
+
+// ===================================================================
+// Validacion GPU: equivalencia CPU vs GPU para aceleraciones (Lab 2)
+// ===================================================================
+// Estos tests validan que computeAccelerationsGpu() y stepEulerGpu()
+// producen resultados equivalentes a la referencia serial CPU dentro
+// de las tolerancias rtol=1e-4, atol=1e-8 definidas en gpu_test_helpers.h.
+//
+// En entornos sin CUDA, launchGpuKernel() delega automaticamente en la
+// implementacion CPU, por lo que los tests pasan por construccion.
+// En entornos con CUDA (nvcc + GPU fisica), los tests ejercen el kernel
+// real y validan la equivalencia numerica.
+
+TEST(GpuValidation, AccelerationsN2) {
+    HarnessConfig cfg;
+    cfg.numBodies = 2;
+    cfg.seed = 100;
+    auto r = compareAccelerationsOnly(cfg);
+    EXPECT_TRUE(r.accelerationsOk) << r.firstMismatch;
+    EXPECT_EQ(r.mismatchCount, 0u);
+}
+
+TEST(GpuValidation, AccelerationsN3) {
+    HarnessConfig cfg;
+    cfg.numBodies = 3;
+    cfg.seed = 200;
+    auto r = compareAccelerationsOnly(cfg);
+    EXPECT_TRUE(r.accelerationsOk) << r.firstMismatch;
+    EXPECT_EQ(r.mismatchCount, 0u);
+}
+
+TEST(GpuValidation, RegressionAccelerationArrays) {
+    HarnessConfig cfg;
+    cfg.numBodies = 200;
+    cfg.seed = 42;
+    auto r = compareAccelerationsOnly(cfg);
+    EXPECT_TRUE(r.accelerationsOk) << r.firstMismatch;
+    EXPECT_EQ(r.mismatchCount, 0u);
+}
+
+TEST(GpuValidation, FullStepN2) {
+    HarnessConfig cfg;
+    cfg.numBodies = 2;
+    cfg.seed = 300;
+    cfg.dt = 0.01;
+    auto r = compareFullStep(cfg);
+    EXPECT_TRUE(r.allOk) << r.firstMismatch;
+    EXPECT_EQ(r.mismatchCount, 0u);
+}
+
+TEST(GpuValidation, MultiStepN3) {
+    HarnessConfig cfg;
+    cfg.numBodies = 3;
+    cfg.seed = 400;
+    cfg.dt = 0.01;
+    cfg.steps = 5;
+    auto r = compareMultiStep(cfg);
+    EXPECT_TRUE(r.allOk) << r.firstMismatch;
+    EXPECT_EQ(r.mismatchCount, 0u);
+}
+
+TEST(GpuValidation, VariantZeroExplicit) {
+    NBodySimulator cpuSim(1.0, 0.1);
+    NBodySimulator gpuSim(1.0, 0.1);
+    Particle p1(0.0, 0.0, 0.0, 0.0, 1.0);
+    Particle p2(1.0, 0.0, 0.0, 0.0, 1.0);
+    cpuSim.addParticle(p1); cpuSim.addParticle(p2);
+    gpuSim.addParticle(p1); gpuSim.addParticle(p2);
+
+    cpuSim.computeAccelerations();
+    gpuSim.computeAccelerationsGpu();
+
+    const auto& cpu = cpuSim.getParticles();
+    const auto& gpu = gpuSim.getParticles();
+    for (size_t i = 0; i < cpu.size(); ++i) {
+        EXPECT_TRUE(compareAccelerations(cpu[i], gpu[i]))
+            << "particula " << i << " ax=" << cpu[i].getAx()
+            << " vs " << gpu[i].getAx();
+    }
+}
+
+TEST(GpuValidation, VariantOneExplicit) {
+    NBodySimulator cpuSim(1.0, 0.1);
+    NBodySimulator gpuSim(1.0, 0.1);
+    Particle p1(0.0, 0.0, 0.0, 0.0, 2.0);
+    Particle p2(3.0, 0.0, 0.0, 0.0, 1.0);
+    Particle p3(0.0, 4.0, 0.0, 0.0, 1.5);
+    cpuSim.addParticle(p1); cpuSim.addParticle(p2); cpuSim.addParticle(p3);
+    gpuSim.addParticle(p1); gpuSim.addParticle(p2); gpuSim.addParticle(p3);
+
+    cpuSim.computeAccelerations();
+    gpuSim.computeAccelerationsGpu(1);
+
+    const auto& cpu = cpuSim.getParticles();
+    const auto& gpu = gpuSim.getParticles();
+    for (size_t i = 0; i < cpu.size(); ++i) {
+        EXPECT_TRUE(compareAccelerations(cpu[i], gpu[i]))
+            << "particula " << i << " variant=1";
+    }
+}
+
+TEST(GpuValidation, BlockSize256) {
+    NBodySimulator cpuSim(1.0, 0.1);
+    NBodySimulator gpuSim(1.0, 0.1);
+    cpuSim.initializeRandom(50, 500, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+    gpuSim.initializeRandom(50, 500, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    cpuSim.computeAccelerations();
+    gpuSim.computeAccelerationsGpu(0, 256);
+
+    const auto& cpu = cpuSim.getParticles();
+    const auto& gpu = gpuSim.getParticles();
+    for (size_t i = 0; i < cpu.size(); ++i) {
+        EXPECT_TRUE(compareAccelerations(cpu[i], gpu[i]))
+            << "particula " << i << " block=256";
+    }
+}
+
+TEST(GpuValidation, BlockSize512) {
+    NBodySimulator cpuSim(1.0, 0.1);
+    NBodySimulator gpuSim(1.0, 0.1);
+    cpuSim.initializeRandom(50, 600, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+    gpuSim.initializeRandom(50, 600, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    cpuSim.computeAccelerations();
+    gpuSim.computeAccelerationsGpu(0, 512);
+
+    const auto& cpu = cpuSim.getParticles();
+    const auto& gpu = gpuSim.getParticles();
+    for (size_t i = 0; i < cpu.size(); ++i) {
+        EXPECT_TRUE(compareAccelerations(cpu[i], gpu[i]))
+            << "particula " << i << " block=512";
+    }
+}
+
+TEST(GpuValidation, StepEulerGpuExplicit) {
+    const double dt = 0.01;
+    NBodySimulator cpuSim(1.0, 0.1);
+    NBodySimulator gpuSim(1.0, 0.1);
+    cpuSim.initializeRandom(10, 700, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+    gpuSim.initializeRandom(10, 700, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    cpuSim.computeAccelerations();
+    cpuSim.integrate(dt);
+
+    gpuSim.stepEulerGpu(dt);
+
+    const auto& cpu = cpuSim.getParticles();
+    const auto& gpu = gpuSim.getParticles();
+    ASSERT_EQ(cpu.size(), gpu.size());
+    for (size_t i = 0; i < cpu.size(); ++i) {
+        SCOPED_TRACE("particula " + std::to_string(i));
+        EXPECT_TRUE(compareParticles(cpu[i], gpu[i]))
+            << mismatchDetail(cpu, gpu);
+    }
+}
+
+TEST(GpuValidation, TolerancesAreApplied) {
+    EXPECT_DOUBLE_EQ(kGpuRtol, 1e-4);
+    EXPECT_DOUBLE_EQ(kGpuAtol, 1e-8);
 }
