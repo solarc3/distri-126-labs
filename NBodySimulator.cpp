@@ -67,6 +67,8 @@ void NBodySimulator::ensureSoABuffers(int n) {
         soa_x.resize(needed);
         soa_y.resize(needed);
         soa_mass.resize(needed);
+        soa_ax.resize(needed);
+        soa_ay.resize(needed);
     }
 }
 
@@ -91,6 +93,22 @@ void NBodySimulator::syncSoAFromParticles(int n) {
     }
 }
 
+void NBodySimulator::syncAccelerationsToParticles(int n) {
+    if (n == 0) {
+        return;
+    }
+
+    const double* NBODY_RESTRICT ax = soa_ax.data();
+    const double* NBODY_RESTRICT ay = soa_ay.data();
+    Particle* NBODY_RESTRICT p = particles.data();
+
+    #pragma omp parallel for simd schedule(static) aligned(ax, ay, p:64)
+    for (int i = 0; i < n; ++i) {
+        p[i].ax = ax[i];
+        p[i].ay = ay[i];
+    }
+}
+
 void NBodySimulator::computeAccelerations() {
     computeAccelerationsSoAImpl(0, 0, false);
 }
@@ -107,20 +125,18 @@ void NBodySimulator::computeAccelerationsSoA() {
     computeAccelerationsSoAImpl(0, 0, false);
 }
 
-void NBodySimulator::computeAccelerationsSoAImpl(int schedule_type, int chunk_size, bool use_chunk) {
-    const int n = static_cast<int>(particles.size());
+void NBodySimulator::computeAccelerationsKernel(int n, int schedule_type, int chunk_size, bool use_chunk) {
     if (n == 0) {
         return;
     }
-
-    syncSoAFromParticles(n);
 
     const double eps2 = epsilon * epsilon;
     const double g = G;
     const double* NBODY_RESTRICT x = soa_x.data();
     const double* NBODY_RESTRICT y = soa_y.data();
     const double* NBODY_RESTRICT mass = soa_mass.data();
-    Particle* NBODY_RESTRICT p = particles.data();
+    double* NBODY_RESTRICT ax = soa_ax.data();
+    double* NBODY_RESTRICT ay = soa_ay.data();
     const bool default_static = (schedule_type == 0 && !use_chunk);
 
     omp_sched_t previous_kind = omp_sched_static;
@@ -163,8 +179,8 @@ void NBodySimulator::computeAccelerationsSoAImpl(int schedule_type, int chunk_si
                 ay_local += a_mag * dy;
             }
 
-            p[i].ax = ax_local;
-            p[i].ay = ay_local;
+            ax[i] = ax_local;
+            ay[i] = ay_local;
         };
 
         if (default_static) {
@@ -234,8 +250,8 @@ void NBodySimulator::computeAccelerationsSoAImpl(int schedule_type, int chunk_si
 
             for (int ii = 0; ii < tile_count; ++ii) {
                 const int i = ib + ii;
-                p[i].ax = ax_tile[static_cast<std::size_t>(ii)];
-                p[i].ay = ay_tile[static_cast<std::size_t>(ii)];
+                ax[i] = ax_tile[static_cast<std::size_t>(ii)];
+                ay[i] = ay_tile[static_cast<std::size_t>(ii)];
             }
         };
 
@@ -255,6 +271,17 @@ void NBodySimulator::computeAccelerationsSoAImpl(int schedule_type, int chunk_si
     if (!default_static) {
         omp_set_schedule(previous_kind, previous_chunk);
     }
+}
+
+void NBodySimulator::computeAccelerationsSoAImpl(int schedule_type, int chunk_size, bool use_chunk) {
+    const int n = static_cast<int>(particles.size());
+    if (n == 0) {
+        return;
+    }
+
+    syncSoAFromParticles(n);
+    computeAccelerationsKernel(n, schedule_type, chunk_size, use_chunk);
+    syncAccelerationsToParticles(n);
 }
 
 void NBodySimulator::integrate(double dt) {
