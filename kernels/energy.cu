@@ -126,13 +126,12 @@ __global__ void computePotentialEnergyAtomicKernel(const double* d_x,
         const double xi = d_x[i];
         const double yi = d_y[i];
         const double mi = d_mass[i];
-        const double g = G;
         double val = 0.0;
         for (int j = i + 1; j < n; ++j) {
             const double dx = d_x[j] - xi;
             const double dy = d_y[j] - yi;
             const double dist = sqrt(dx * dx + dy * dy + eps2);
-            val -= g * mi * d_mass[j] / dist;
+            val -= G * mi * d_mass[j] / dist;
         }
         atomicAddDouble(d_result, val);
     }
@@ -159,8 +158,19 @@ void launchComputeEnergy(const double* d_x, const double* d_y,
 
     double* d_K = nullptr;
     double* d_U = nullptr;
-    cudaMalloc(&d_K, sizeof(double));
-    cudaMalloc(&d_U, sizeof(double));
+    cudaError_t alloc_err = cudaMalloc(&d_K, sizeof(double));
+    if (alloc_err != cudaSuccess) {
+        throw std::runtime_error(
+            std::string("launchComputeEnergy: cudaMalloc d_K failed - ")
+            + cudaGetErrorString(alloc_err));
+    }
+    alloc_err = cudaMalloc(&d_U, sizeof(double));
+    if (alloc_err != cudaSuccess) {
+        cudaFree(d_K);
+        throw std::runtime_error(
+            std::string("launchComputeEnergy: cudaMalloc d_U failed - ")
+            + cudaGetErrorString(alloc_err));
+    }
     cudaMemset(d_K, 0, sizeof(double));
     cudaMemset(d_U, 0, sizeof(double));
 
@@ -187,7 +197,7 @@ void launchComputeEnergy(const double* d_x, const double* d_y,
                 std::string("launchComputeEnergy: error atomic potential kernel - ")
                 + cudaGetErrorString(err));
         }
-    } else {
+    } else if (method == 0) {
         // metodo 0 (default): reduccion en shared memory
         computeKineticEnergyKernel<<<grid, kBlockSize>>>(
             d_vx, d_vy, d_mass, n, d_K);
@@ -208,6 +218,11 @@ void launchComputeEnergy(const double* d_x, const double* d_y,
                 std::string("launchComputeEnergy: error potential kernel - ")
                 + cudaGetErrorString(err));
         }
+    } else {
+        cudaFree(d_K); cudaFree(d_U);
+        throw std::runtime_error(
+            std::string("launchComputeEnergy: invalid method ")
+            + std::to_string(method));
     }
 
     cudaDeviceSynchronize();

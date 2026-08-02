@@ -270,12 +270,14 @@ TEST(HarnessConsistency, DifferentSeedsProduceDifferentStates) {
             pA[i].getY() != pB[i].getY() ||
             pA[i].getVx() != pB[i].getVx() ||
             pA[i].getVy() != pB[i].getVy() ||
+            pA[i].getAx() != pB[i].getAx() ||
+            pA[i].getAy() != pB[i].getAy() ||
             pA[i].getMass() != pB[i].getMass()) {
             anyDifferent = true;
             break;
         }
     }
-    EXPECT_TRUE(anyDifferent) << "Semillas distintas deberian generar estados distintos";
+    EXPECT_TRUE(anyDifferent) << "Different seeds should produce different states";
 }
 
 TEST(HarnessConsistency, SameSeedProducesIdenticalStates) {
@@ -304,6 +306,8 @@ TEST(HarnessConsistency, SameSeedProducesIdenticalStates) {
         EXPECT_DOUBLE_EQ(pA[i].getY(), pB[i].getY());
         EXPECT_DOUBLE_EQ(pA[i].getVx(), pB[i].getVx());
         EXPECT_DOUBLE_EQ(pA[i].getVy(), pB[i].getVy());
+        EXPECT_DOUBLE_EQ(pA[i].getAx(), pB[i].getAx());
+        EXPECT_DOUBLE_EQ(pA[i].getAy(), pB[i].getAy());
         EXPECT_DOUBLE_EQ(pA[i].getMass(), pB[i].getMass());
     }
 }
