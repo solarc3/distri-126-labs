@@ -1,5 +1,8 @@
 #include "accelerations.cuh"
 #include <cassert>
+#include <cuda_runtime.h>
+#include <stdexcept>
+#include <string>
 
 __global__ void computeAccelerationsKernel(const double* __restrict__ d_x,
                                            const double* __restrict__ d_y,
