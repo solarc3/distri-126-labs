@@ -297,9 +297,7 @@ inline HarnessResult compareEnergy(const HarnessConfig& cfg) {
     bool kOk = compareFloat(cpuK, gpuK, cfg.rtol, cfg.atol);
     bool uOk = compareFloat(cpuU, gpuU, cfg.rtol, cfg.atol);
 
-    result.accelerationsOk = kOk && uOk;
-    result.allOk = result.accelerationsOk;
-
+    result.allOk = kOk && uOk;
     if (!kOk || !uOk) {
         result.mismatchCount = 1;
         result.firstMismatch = "energia: cpu_K=" + std::to_string(cpuK) +
