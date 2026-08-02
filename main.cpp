@@ -105,7 +105,8 @@ int main(int argc, char* argv[]) {
                       << "  --skip-serial          Saltea la medicion T=1 (usar con --serial-seconds)\n"
                       << "  --serial-seconds X     Tiempo serial pre-calculado para speedup\n"
                       << "  --force-mode M         Calculo de fuerzas disponible: soa (default: soa)\n"
-                      << "  --benchmark-gpu        Matriz GPU kernel-only/end-to-end x blockDim.x (requiere build CUDA)\n";
+                      << "  --benchmark-gpu        Matriz GPU kernel-only/end-to-end x blockDim.x (requiere build CUDA).\n"
+                      << "                         Usa N fijos {256,512,1024,2000}: ignora --bodies/--steps.\n";
             return 0;
         } else {
             seed = static_cast<unsigned int>(std::stoul(arg));

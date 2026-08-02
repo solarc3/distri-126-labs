@@ -5,6 +5,7 @@
 #include <numeric>
 #include <chrono>
 #include <tuple>
+#include <stdexcept>
 
 std::pair<double, double> Benchmark::measureExecutionTime(std::function<void()> simulation_task) {
     std::vector<double> times(repetitions);
@@ -66,6 +67,9 @@ BenchmarkResult Benchmark::calculateMetrics(int threads,
 namespace {
 
 std::pair<double, double> meanAndStdDev(const std::vector<double>& times) {
+    if (times.empty()) {
+        return {0.0, 0.0};
+    }
     const double sum = std::accumulate(times.begin(), times.end(), 0.0);
     const double mean = sum / static_cast<double>(times.size());
     double sq_sum = 0.0;
@@ -148,6 +152,12 @@ CpuGpuComparison Benchmark::compareCpuGpu(int n_bodies, int variant, int block_s
     const GpuBenchmarkResult gpu = benchmarkEndToEnd(n_bodies, variant, block_size, seed, G, epsilon);
     cmp.gpu_mean = gpu.mean_time;
     cmp.gpu_std = gpu.std_dev;
+
+    if (cmp.cpu_mean <= 0.0 || cmp.gpu_mean <= 0.0) {
+        throw std::runtime_error(
+            "Benchmark::compareCpuGpu: tiempo medido invalido (<=0). "
+            "Revisa que 'repetitions' > 0 y que el binario tenga acceso a una GPU real.");
+    }
 
     cmp.speedup = cmp.cpu_mean / cmp.gpu_mean;
     const double rel_err_cpu = cmp.cpu_std / cmp.cpu_mean;

@@ -315,7 +315,7 @@ de rendimiento: esas solo se aceptan desde el nodo GPU del clúster DIINF.
 ├── plot_performance.py      # Graficos CPU/OpenMP
 ├── plot_gpu_benchmarks.py   # Graficos GPU (--benchmark-gpu)
 ├── Dockerfile               # Contenedor reproducible (base nvidia/cuda + nvcc)
-├── kernels/                 # Kernels CUDA (.cu/.cuh) — Lab 2, aun sin contenido
+├── kernels/                 # Kernels CUDA: accelerations.cu/.cuh (basico); shared memory pendiente (#20)
 ├── .github/                 # CI con GitHub Actions (build-and-test + docker-cuda-build)
 ├── tests/
 │   ├── test_physics.cpp         # Pruebas unitarias y de regresion con GTest
