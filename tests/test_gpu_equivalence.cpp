@@ -235,9 +235,16 @@ TEST(HarnessConsistency, DifferentSeedsProduceDifferentStates) {
 
     bool anyDifferent = false;
     for (size_t i = 0; i < pA.size(); ++i) {
-        if (pA[i].getX() != pB[i].getX()) { anyDifferent = true; break; }
+        if (pA[i].getX() != pB[i].getX() ||
+            pA[i].getY() != pB[i].getY() ||
+            pA[i].getVx() != pB[i].getVx() ||
+            pA[i].getVy() != pB[i].getVy() ||
+            pA[i].getMass() != pB[i].getMass()) {
+            anyDifferent = true;
+            break;
+        }
     }
-    EXPECT_TRUE(anyDifferent) << "Misma semilla deberia generar estados distintos";
+    EXPECT_TRUE(anyDifferent) << "Semillas distintas deberian generar estados distintos";
 }
 
 TEST(HarnessConsistency, SameSeedProducesIdenticalStates) {
