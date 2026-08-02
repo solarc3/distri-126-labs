@@ -1,0 +1,6 @@
+-x
+cuda
+--cuda-path=/opt/cuda
+--cuda-gpu-arch=sm_75
+-std=c++17
+-I.
