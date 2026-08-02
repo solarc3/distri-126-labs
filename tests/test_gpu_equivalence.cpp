@@ -217,6 +217,108 @@ TEST(GpuEquivalence, EnergyInvalidMethodThrows) {
 }
 #endif
 
+// ---------------------------------------------------------------------------
+// Tests analiticos: aceleracion contra valor conocido (sin seed random).
+// Requisito del laboratorio: "aceleracion entre 2-3 cuerpos CPU vs analitico".
+// ---------------------------------------------------------------------------
+
+TEST(GpuEquivalence, AnalyticalTwoBodies) {
+    // m1 en (0,0), m2 en (1,0). G=m1=m2=1, eps=0.1.
+    // a1x = G * m2 / (dx^2 + eps^2)^(3/2)
+    //     = 1 / (1 + 0.01)^1.5 = 1 / 1.01^1.5
+    const double G = 1.0;
+    const double eps = 0.1;
+    const double dx = 1.0;
+    const double expected_a1x = G * 1.0 * dx / std::pow(dx * dx + eps * eps, 1.5);
+    const double expected_a2x = -expected_a1x;
+
+    NBodySimulator cpuSim(G, eps);
+    NBodySimulator gpuSim0(G, eps);
+    NBodySimulator gpuSim1(G, eps);
+
+    Particle p1(0.0, 0.0, 0.0, 0.0, 1.0);
+    Particle p2(1.0, 0.0, 0.0, 0.0, 1.0);
+
+    cpuSim.addParticle(p1); cpuSim.addParticle(p2);
+    gpuSim0.addParticle(p1); gpuSim0.addParticle(p2);
+    gpuSim1.addParticle(p1); gpuSim1.addParticle(p2);
+
+    cpuSim.computeAccelerations();
+    gpuSim0.computeAccelerationsGpu(0, 256);
+    gpuSim1.computeAccelerationsGpu(1, 256);
+
+    const auto& cpu = cpuSim.getParticles();
+    const auto& gpu0 = gpuSim0.getParticles();
+    const auto& gpu1 = gpuSim1.getParticles();
+
+    EXPECT_NEAR(cpu[0].getAx(), expected_a1x, 1e-15);
+    EXPECT_NEAR(cpu[0].getAy(), 0.0, 1e-15);
+    EXPECT_NEAR(cpu[1].getAx(), expected_a2x, 1e-15);
+    EXPECT_NEAR(cpu[1].getAy(), 0.0, 1e-15);
+
+    EXPECT_TRUE(compareAccelerations(gpu0[0], cpu[0]))
+        << "gpu variant=0 vs cpu";
+    EXPECT_TRUE(compareAccelerations(gpu1[0], cpu[0]))
+        << "gpu variant=1 vs cpu";
+}
+
+TEST(GpuEquivalence, AnalyticalThreeBodies) {
+    // m1(0,0) m2(1,0) m3(0,1), G=mi=1, eps=0.1.
+    // a1: contribucion de m2 en +x, de m3 en +y → magnitudes iguales
+    // a2: contribucion de m1 en -x, de m3 en (-1,+1)
+    // a3: contribucion de m1 en -y, de m2 en (+1,-1)
+    const double G = 1.0;
+    const double eps = 0.1;
+
+    // distancia unitaria (dx=1,dy=0 o dx=0,dy=1): r2 = 1 + 0.01
+    const double s1 = 1.0 / std::pow(1.0 + eps * eps, 1.5);
+    // distancia diagonal (dx=1,dy=1): r2 = 2 + 0.01
+    const double s2 = 1.0 / std::pow(2.0 + eps * eps, 1.5);
+
+    const double a1x = s1;          // m2 aporta +x
+    const double a1y = s1;          // m3 aporta +y
+    const double a2x = -s1 - s2;    // m1: -x, m3: dx=-1
+    const double a2y = s2;          // m3: dy=+1
+    const double a3x = s2;          // m2: dx=+1
+    const double a3y = -s1 - s2;    // m1: -y, m2: dy=-1
+
+    NBodySimulator cpuSim(G, eps);
+    NBodySimulator gpuSim0(G, eps);
+    NBodySimulator gpuSim1(G, eps);
+
+    Particle p1(0.0, 0.0, 0.0, 0.0, 1.0);
+    Particle p2(1.0, 0.0, 0.0, 0.0, 1.0);
+    Particle p3(0.0, 1.0, 0.0, 0.0, 1.0);
+
+    cpuSim.addParticle(p1); cpuSim.addParticle(p2); cpuSim.addParticle(p3);
+    gpuSim0.addParticle(p1); gpuSim0.addParticle(p2); gpuSim0.addParticle(p3);
+    gpuSim1.addParticle(p1); gpuSim1.addParticle(p2); gpuSim1.addParticle(p3);
+
+    cpuSim.computeAccelerations();
+    gpuSim0.computeAccelerationsGpu(0, 256);
+    gpuSim1.computeAccelerationsGpu(1, 256);
+
+    const auto& cpu = cpuSim.getParticles();
+    const auto& gpu0 = gpuSim0.getParticles();
+    const auto& gpu1 = gpuSim1.getParticles();
+
+    // CPU vs analitico
+    EXPECT_NEAR(cpu[0].getAx(), a1x, 1e-15) << "cpu body0 ax";
+    EXPECT_NEAR(cpu[0].getAy(), a1y, 1e-15) << "cpu body0 ay";
+    EXPECT_NEAR(cpu[1].getAx(), a2x, 1e-15) << "cpu body1 ax";
+    EXPECT_NEAR(cpu[1].getAy(), a2y, 1e-15) << "cpu body1 ay";
+    EXPECT_NEAR(cpu[2].getAx(), a3x, 1e-15) << "cpu body2 ax";
+    EXPECT_NEAR(cpu[2].getAy(), a3y, 1e-15) << "cpu body2 ay";
+
+    // GPU vs analitico (tolerancia GPU por rsqrt)
+    for (size_t i = 0; i < 3; ++i) {
+        EXPECT_TRUE(compareAccelerations(gpu0[i], cpu[i]))
+            << "gpu variant=0 body" << i;
+        EXPECT_TRUE(compareAccelerations(gpu1[i], cpu[i]))
+            << "gpu variant=1 body" << i;
+    }
+}
+
 TEST(GpuEquivalence, PhysicalInvariantsGpu) {
     HarnessConfig cfg;
     cfg.numBodies = 50;
