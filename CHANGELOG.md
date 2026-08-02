@@ -11,6 +11,7 @@ El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1
 - Se documentó en `README.md` el desglose de sub-issues propuestos para CUDA Lab 2 y su asignación por rol de equipo (issue #14).
 - `Dockerfile` migrado a `nvidia/cuda:12.4.1-devel-ubuntu22.04`; CI extendida con job `docker-cuda-build` (issue #8).
 - Matriz de benchmarks GPU (`--benchmark-gpu` / `make benchmark-gpu`): `Benchmark::benchmarkKernelOnly`, `Benchmark::benchmarkEndToEnd` y `Benchmark::compareCpuGpu`, con salida en `blockdim_study.dat` y `gpu_benchmark_results.dat` (issue #39).
+- `plot_gpu_benchmarks.py`: genera `gpu_performance_plots.png` (speedup GPU vs. CPU vs. N, kernel-only vs. end-to-end, tiempo vs. blockDim.x, basica vs. shared memory) a partir de esos `.dat`, invocado automaticamente por `make benchmark-gpu`.
 - Target `make test-gpu` para validar el kernel CUDA real (vs. `make test`, que se mantiene CPU-only para no romper CI sin GPU).
 
 ### Changed

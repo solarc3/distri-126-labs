@@ -64,6 +64,8 @@ benchmark-all: $(TARGET)
 
 benchmark-gpu: $(TARGET)
 	./$(TARGET) --benchmark-gpu $(ARGS)
+	@echo "Generando graficos GPU..."
+	python3 plot_gpu_benchmarks.py
 
 analysis: $(TARGET)
 	@echo "Ejecutando benchmarks completos..."

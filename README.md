@@ -245,6 +245,15 @@ matriz) y `gpu_benchmark_results.dat` (comparación CPU serial vs. GPU
 end-to-end y speedup con propagación de error, una fila por `(N, variante)`
 con `blockDim.x=256`).
 
+**Graficos:** `make benchmark-gpu` corre el binario y automaticamente llama a
+`plot_gpu_benchmarks.py`, que lee esos dos `.dat` y genera
+`gpu_performance_plots.png` con los 4 graficos GPU requeridos en la seccion
+11.1 del enunciado: speedup GPU vs. CPU vs. N, kernel-only vs. end-to-end,
+tiempo vs. `blockDim.x` (ambas variantes) y basica vs. shared memory. Si
+se corre el script sin haber generado los `.dat` (p. ej. en esta laptop, sin
+GPU), cada panel simplemente muestra "Datos no disponibles" en vez de
+fallar, asi se puede probar el pipeline de principio a fin sin GPU.
+
 Requiere un binario compilado con `NBODY_ENABLE_CUDA_KERNELS` (ver arriba) y
 una GPU NVIDIA real; sin eso falla con un mensaje explicito en vez de
 inventar numeros. **Las corridas que van al reporte final deben hacerse en
@@ -289,6 +298,7 @@ de rendimiento: esas solo se aceptan desde el nodo GPU del clúster DIINF.
 | `performance_plots.png` | Graficos: speedup, eficiencia, tiempo, Amdahl, chunk, energia |
 | `blockdim_study.dat` | (`--benchmark-gpu`) Kernel-only vs. end-to-end por `N`/variante/`blockDim.x` |
 | `gpu_benchmark_results.dat` | (`--benchmark-gpu`) CPU vs. GPU end-to-end y speedup por `N`/variante |
+| `gpu_performance_plots.png` | Graficos GPU: speedup vs. N, kernel-only vs. end-to-end, tiempo vs. blockDim.x, basica vs. shared |
 
 ## Estructura del Proyecto
 
@@ -302,7 +312,8 @@ de rendimiento: esas solo se aceptan desde el nodo GPU del clúster DIINF.
 ├── Visualizer.h/.cpp        # Exportacion de estados a archivos .dat
 ├── main.cpp                 # Punto de entrada con modos fisica/benchmark
 ├── Makefile                 # Compilacion, test, benchmark, analisis
-├── plot_performance.py      # Script de generacion de graficos
+├── plot_performance.py      # Graficos CPU/OpenMP
+├── plot_gpu_benchmarks.py   # Graficos GPU (--benchmark-gpu)
 ├── Dockerfile               # Contenedor reproducible (base nvidia/cuda + nvcc)
 ├── kernels/                 # Kernels CUDA (.cu/.cuh) — Lab 2, aun sin contenido
 ├── .github/                 # CI con GitHub Actions (build-and-test + docker-cuda-build)
