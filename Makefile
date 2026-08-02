@@ -18,14 +18,19 @@ NVCC ?= nvcc
 NVCCFLAGS ?= -O3 -std=c++17 -Xcompiler -Wall,-Wextra
 CU_SOURCES := $(wildcard kernels/*.cu)
 CU_OBJS := $(CU_SOURCES:.cu=.o)
+NVCC_AVAILABLE := $(shell command -v $(NVCC) >/dev/null 2>&1 && echo 1 || echo 0)
 
 TARGET = nbody_sim
 SRCS = main.cpp Particle.cpp NBodySimulator.cpp Integrator.cpp Benchmark.cpp MetricsCalculator.cpp Visualizer.cpp
 OBJS = $(SRCS:.cpp=.o)
 
 ifneq ($(CU_SOURCES),)
+ifeq ($(NVCC_AVAILABLE),1)
 OBJS += $(CU_OBJS)
 LDFLAGS += -lcudart
+else
+$(warning CUDA kernels found but '$(NVCC)' is not available; building CPU-only target)
+endif
 endif
 
 .PHONY: all benchmark benchmark-all analysis clean test test-cuda-buffer test-cuda-soa vec-report profile cuda-info
