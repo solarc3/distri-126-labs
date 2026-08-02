@@ -56,9 +56,18 @@ public:
 
     // Paso completo Euler simplectico usando GPU para aceleraciones.
     // Orden fijo del enunciado:
-    //   1. computeAccelerationsGpu() -> cudaDeviceSynchronize()
-    //   2. integrate(dt) en CPU (kick-drift)
+    //   1. launchGpuKernel(variant, block_size)
+    //       1a. copyHostToDevice(x, y, mass)
+    //       1b. launchComputeAccelerations<<<grid, block>>>(...)
+    //       1c. cudaDeviceSynchronize()
+    //       1d. copyDeviceToHost(ax, ay)
+    //       1e. syncAccelerationsToParticles()
+    //   2. Euler explicito en host (kick-drift secuencial)
+    //       2a. v += a * dt (kick)
+    //       2b. r += v * dt (drift)
     void stepEulerGpu(double dt);
+    void stepEulerGpu(double dt, int variant);
+    void stepEulerGpu(double dt, int variant, int block_size);
 
     void integrate(double dt);
 
