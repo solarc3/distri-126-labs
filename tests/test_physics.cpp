@@ -235,7 +235,48 @@ TEST(OpenMPOverloadTest, SoAProducesSameResult) {
         EXPECT_NEAR(rp[i].getAx(), sp[i].getAx(), 1e-9) << "particle " << i;
         EXPECT_NEAR(rp[i].getAy(), sp[i].getAy(), 1e-9) << "particle " << i;
     }
+
 }
+
+TEST(OpenMPOverloadTest, KernelIntegrationTransferKeepsResultsCorrect) {
+        auto initial = makeTestParticles(40);
+        auto updated = initial;
+        for (size_t i = 0; i < updated.size(); ++i) {
+            const double new_x = updated[i].getX() + 3.0 + 0.02 * static_cast<double>(i);
+            const double new_y = updated[i].getY() - (1.5 - 0.01 * static_cast<double>(i));
+            updated[i] = Particle(new_x, new_y, updated[i].getVx(), updated[i].getVy(), updated[i].getMass());
+        }
+
+        NBodySimulator sim(1.0, 0.1);
+        sim.setParticles(initial);
+        sim.computeAccelerations();
+        std::vector<double> old_ax;
+        old_ax.reserve(updated.size());
+        for (const auto& p : sim.getParticles()) {
+            old_ax.push_back(p.getAx());
+        }
+
+        sim.setParticles(updated);
+        sim.computeAccelerationsSoA();
+
+        NBodySimulator ref(1.0, 0.1);
+        ref.setParticles(updated);
+        ref.computeAccelerations();
+
+        const auto& got = sim.getParticles();
+        const auto& exp = ref.getParticles();
+        ASSERT_EQ(got.size(), exp.size());
+
+        bool changed = false;
+        for (size_t i = 0; i < got.size(); ++i) {
+            EXPECT_NEAR(got[i].getAx(), exp[i].getAx(), 1e-9) << "ax@" << i;
+            EXPECT_NEAR(got[i].getAy(), exp[i].getAy(), 1e-9) << "ay@" << i;
+            if (!changed && std::fabs(got[i].getAx() - old_ax[i]) > 1e-12) {
+                changed = true;
+            }
+        }
+        EXPECT_TRUE(changed);
+    }
 
 TEST(OpenMPOverloadTest, IntegrateSyncTypesProduceSameResult) {
     double dt = 0.01;

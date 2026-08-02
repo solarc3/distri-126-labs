@@ -18,9 +18,12 @@ private:
     // Reusable Structure-of-Arrays buffers for the force kernel.
     // They are 64-byte aligned so the inner loop can safely use aligned SIMD loads.
     AlignedDoubleVector soa_x, soa_y, soa_mass;
+    AlignedDoubleVector soa_ax, soa_ay;
 
     void ensureSoABuffers(int n);
     void syncSoAFromParticles(int n);
+    void syncAccelerationsToParticles(int n);
+    void computeAccelerationsKernel(int n, int schedule_type, int chunk_size, bool use_chunk);
     void computeAccelerationsSoAImpl(int schedule_type, int chunk_size, bool use_chunk);
 
 public:
