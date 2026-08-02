@@ -28,7 +28,7 @@ OBJS += $(CU_OBJS)
 LDFLAGS += -lcudart
 endif
 
-.PHONY: all benchmark benchmark-all analysis clean test vec-report profile cuda-info
+.PHONY: all benchmark benchmark-all analysis clean test test-cuda-buffer test-cuda-soa vec-report profile cuda-info
 
 all: $(TARGET)
 
