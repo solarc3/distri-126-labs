@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM nvidia/cuda:12.4.1-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -31,12 +31,15 @@ RUN cd /usr/src/gtest \
     && cp lib/*.a /usr/lib \
     && rm -rf /usr/src/gtest/*
 
+RUN nvcc --version
+
 RUN useradd --create-home --shell /bin/bash appuser
 WORKDIR /home/appuser/app
 
 COPY --chown=appuser:appuser Makefile ./
 COPY --chown=appuser:appuser *.h *.cpp ./
 COPY --chown=appuser:appuser tests/       tests/
+COPY --chown=appuser:appuser kernels/     kernels/
 COPY --chown=appuser:appuser plot_performance.py ./
 COPY --chown=appuser:appuser run_batch.sh ./
 
