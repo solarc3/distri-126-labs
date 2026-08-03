@@ -26,9 +26,16 @@ OBJS = $(SRCS:.cpp=.o)
 
 ifneq ($(CU_SOURCES),)
 ifeq ($(NVCC_AVAILABLE),1)
+# Derivar CUDA_HOME de la ubicación real de nvcc (ej. /usr/local/cuda/bin/nvcc ->
+# /usr/local/cuda) en vez de asumir una ruta fija; con fallback razonable si falla.
+CUDA_HOME := $(patsubst %/,%,$(dir $(patsubst %/,%,$(dir $(shell command -v $(NVCC))))))
+ifeq ($(CUDA_HOME),)
+CUDA_HOME := /usr/local/cuda
+endif
 OBJS += $(CU_OBJS)
-CXXFLAGS += -DNBODY_ENABLE_CUDA_KERNELS
-LDFLAGS += -L/usr/local/cuda/lib64 -lcudart
+CXXFLAGS += -DNBODY_ENABLE_CUDA_KERNELS -I$(CUDA_HOME)/include
+TEST_CXXFLAGS += -I$(CUDA_HOME)/include
+LDFLAGS += -L$(CUDA_HOME)/lib64 -lcudart
 else
 $(warning CUDA kernels found but '$(NVCC)' is not available; building CPU-only target)
 endif
