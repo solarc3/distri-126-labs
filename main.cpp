@@ -146,9 +146,19 @@ int main(int argc, char* argv[]) {
             Benchmark gpu_bench(repetitions);
 
             std::ofstream blockdim_file("blockdim_study.dat");
+            if (!blockdim_file.is_open()) {
+                std::cerr << "Error: no se pudo abrir 'blockdim_study.dat' para escritura.\n"
+                          << "Verifica permisos de escritura en el directorio de trabajo.\n";
+                return 1;
+            }
             blockdim_file << "# N\tvariant\tblock_size\tkernel_mean_s\tkernel_std_s\tend2end_mean_s\tend2end_std_s\n";
 
             std::ofstream gpu_results_file("gpu_benchmark_results.dat");
+            if (!gpu_results_file.is_open()) {
+                std::cerr << "Error: no se pudo abrir 'gpu_benchmark_results.dat' para escritura.\n"
+                          << "Verifica permisos de escritura en el directorio de trabajo.\n";
+                return 1;
+            }
             gpu_results_file << "# N\tvariant\tblock_size\tcpu_mean_s\tcpu_std_s\tgpu_mean_s\tgpu_std_s\tspeedup\tspeedup_err\n";
 
             for (int n : gpu_n_values) {
