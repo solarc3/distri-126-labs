@@ -53,6 +53,9 @@ public:
     void computeAccelerationsGpu();
     void computeAccelerationsGpu(int variant);
     void computeAccelerationsGpu(int variant, int block_size);
+    void uploadGpuBuffers();
+    void computeAccelerationsGpuKernelOnly(int variant, int block_size);
+    void downloadGpuAccelerations();
 
     // Paso completo Euler simplectico usando GPU para aceleraciones.
     // Orden fijo del enunciado:
