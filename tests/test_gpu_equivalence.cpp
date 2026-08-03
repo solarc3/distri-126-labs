@@ -533,3 +533,66 @@ TEST(HarnessConsistency, SameSeedProducesIdenticalStates) {
         EXPECT_DOUBLE_EQ(pA[i].getMass(), pB[i].getMass());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Regresion: eps == 0 con lanes de padding en el kernel de shared memory.
+// Los lanes con j >= n se rellenan con ceros; si la particula i esta en el
+// origen exacto, r2 = xi^2 + yi^2 = 0 -> rsqrt(0) = inf -> 0.0 * inf = NaN.
+// Requiere N no multiplo de block_size para que exista un tile parcial.
+// ---------------------------------------------------------------------------
+
+class GpuZeroSofteningPadding
+    : public ::testing::TestWithParam<std::tuple<int, int>> {};
+
+TEST_P(GpuZeroSofteningPadding, NoNaNAndVariantsMatch) {
+    const int N = std::get<0>(GetParam());
+    const int block_size = std::get<1>(GetParam());
+    ASSERT_NE(N % block_size, 0) << "el test necesita un tile parcial";
+
+    // epsilon = 0: sin suavizado, la autointeraccion se salta por indice.
+    NBodySimulator cpuSim(1.0, 0.0);
+    NBodySimulator gpuSim0(1.0, 0.0);
+    NBodySimulator gpuSim1(1.0, 0.0);
+
+    // Particula 0 exactamente en el origen; el resto en posiciones distintas
+    // para no crear singularidades reales entre pares.
+    for (int i = 0; i < N; ++i) {
+        Particle p(i == 0 ? 0.0 : 1.0 + i * 0.5,
+                   i == 0 ? 0.0 : -2.0 + i * 0.25,
+                   0.0, 0.0,
+                   1.0 + (i % 3) * 0.5);
+        cpuSim.addParticle(p);
+        gpuSim0.addParticle(p);
+        gpuSim1.addParticle(p);
+    }
+
+    cpuSim.computeAccelerations();
+    gpuSim0.computeAccelerationsGpu(0, block_size);
+    gpuSim1.computeAccelerationsGpu(1, block_size);
+
+    const auto& cpu = cpuSim.getParticles();
+    const auto& gpu0 = gpuSim0.getParticles();
+    const auto& gpu1 = gpuSim1.getParticles();
+    ASSERT_EQ(cpu.size(), gpu1.size());
+
+    for (size_t i = 0; i < gpu1.size(); ++i) {
+        EXPECT_TRUE(std::isfinite(gpu1[i].getAx()))
+            << "N=" << N << " block=" << block_size << " i=" << i << " ax no finito";
+        EXPECT_TRUE(std::isfinite(gpu1[i].getAy()))
+            << "N=" << N << " block=" << block_size << " i=" << i << " ay no finito";
+
+        EXPECT_TRUE(compareAccelerations(gpu1[i], gpu0[i]))
+            << "variant1 vs variant0, N=" << N << " block=" << block_size << " i=" << i;
+        EXPECT_TRUE(compareAccelerations(gpu1[i], cpu[i]))
+            << "variant1 vs cpu, N=" << N << " block=" << block_size << " i=" << i;
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ZeroSofteningPadding,
+    GpuZeroSofteningPadding,
+    ::testing::Combine(
+        ::testing::Values(2, 3, 70, 130, 257),
+        ::testing::Values(64, 256)
+    )
+);

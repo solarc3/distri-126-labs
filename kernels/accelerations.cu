@@ -71,7 +71,13 @@ __global__ void computeAccelerationsKernelShared(const double* __restrict__ d_x,
 
         __syncthreads();
 
-        for (int k = 0; k < bdim; ++k) {
+        // Solo los lanes con j < n son reales. Los de padding tienen masa 0 y
+        // con eps2 > 0 no aportan, pero con eps2 == 0 una particula en el
+        // origen daria r2 = 0 -> rsqrt = inf -> 0.0 * inf = NaN. kmax es
+        // uniforme por bloque, asi que no introduce divergencia.
+        const int kmax = min(bdim, n - t * bdim);
+
+        for (int k = 0; k < kmax; ++k) {
             const int jg = t * bdim + k;
 
             if (eps2 == 0.0 && jg == i) continue;
