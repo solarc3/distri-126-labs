@@ -24,10 +24,14 @@ TARGET = nbody_sim
 SRCS = main.cpp Particle.cpp NBodySimulator.cpp Integrator.cpp Benchmark.cpp MetricsCalculator.cpp Visualizer.cpp
 OBJS = $(SRCS:.cpp=.o)
 
+TEST_OBJS =
+
 ifneq ($(CU_SOURCES),)
 ifeq ($(NVCC_AVAILABLE),1)
 OBJS += $(CU_OBJS)
 CXXFLAGS += -DNBODY_ENABLE_CUDA_KERNELS
+TEST_CXXFLAGS += -DNBODY_ENABLE_CUDA_KERNELS
+TEST_OBJS += $(CU_OBJS)
 LDFLAGS += -L/usr/local/cuda/lib64 -lcudart
 else
 $(warning CUDA kernels found but '$(NVCC)' is not available; building CPU-only target)
@@ -82,8 +86,8 @@ clean:
 TEST_TARGET = run_tests
 TEST_SOURCES = tests/test_physics.cpp tests/test_gpu_equivalence.cpp Particle.cpp NBodySimulator.cpp Integrator.cpp MetricsCalculator.cpp Visualizer.cpp
 
-test: $(TEST_SOURCES)
-	$(CXX) $(TEST_CXXFLAGS) -o $(TEST_TARGET) $(TEST_SOURCES) $(LDFLAGS) -lgtest -lgtest_main -pthread
+test: $(TEST_SOURCES) $(TEST_OBJS)
+	$(CXX) $(TEST_CXXFLAGS) -o $(TEST_TARGET) $(TEST_SOURCES) $(TEST_OBJS) $(LDFLAGS) -lgtest -lgtest_main -pthread
 	./$(TEST_TARGET)
 
 test-cuda-buffer: tests/test_cuda_buffer.cpp CudaBuffer.h
