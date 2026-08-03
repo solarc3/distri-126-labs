@@ -1,7 +1,9 @@
 #include <gtest/gtest.h>
 #include <cmath>
+#include <stdexcept>
 #include <vector>
 #include <string>
+#include <tuple>
 #include "gpu_test_helpers.h"
 #include "cpu_gpu_harness.h"
 #include "../NBodySimulator.h"
@@ -90,6 +92,7 @@ TEST(GpuTestHarness, CompareFloatArraySizeMismatch) {
 // NOTA: Las funciones computeAccelerationsGpu(), stepEulerGpu() y
 // calculateEnergyGpu() ya estan implementadas en NBodySimulator y
 // delegadas desde cpu_gpu_harness.h.
+// calculateEnergyGpu() soporta method=0 (shared memory) y method=1 (atomic).
 
 TEST(GpuEquivalence, AccelerationsN2) {
     HarnessConfig cfg;
@@ -156,6 +159,166 @@ TEST(GpuEquivalence, EnergyEquivalenceGpu) {
     EXPECT_EQ(r.mismatchCount, 0u);
 }
 
+TEST(GpuEquivalence, EnergyMethod1VsMethod0) {
+    const int N = 100;
+    NBodySimulator sim(1.0, 0.1);
+    sim.initializeRandom(N, 800, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    double k0 = 0.0, u0 = 0.0;
+    double k1 = 0.0, u1 = 0.0;
+
+    sim.calculateEnergyGpu(k0, u0, 0);
+    sim.calculateEnergyGpu(k1, u1, 1);
+
+    EXPECT_TRUE(compareFloat(k0, k1)) << "K: method0=" << k0 << " method1=" << k1;
+    EXPECT_TRUE(compareFloat(u0, u1)) << "U: method0=" << u0 << " method1=" << u1;
+}
+
+TEST(GpuEquivalence, EnergyAtomicVsCpu) {
+    const int N = 100;
+    NBodySimulator sim(1.0, 0.1);
+    sim.initializeRandom(N, 900, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    double cpuK = 0.0, cpuU = 0.0;
+    double gpuK = 0.0, gpuU = 0.0;
+
+    sim.calculateEnergy(cpuK, cpuU);
+    sim.calculateEnergyGpu(gpuK, gpuU, 1);
+
+    EXPECT_TRUE(compareFloat(cpuK, gpuK))
+        << "K cpu=" << cpuK << " gpu(atomic)=" << gpuK;
+    EXPECT_TRUE(compareFloat(cpuU, gpuU))
+        << "U cpu=" << cpuU << " gpu(atomic)=" << gpuU;
+}
+
+TEST(GpuEquivalence, EnergyEmptySystemReturnsZero) {
+    NBodySimulator sim(1.0, 0.1);
+
+    double k0 = 0.0, u0 = 0.0;
+    double k1 = 0.0, u1 = 0.0;
+
+    sim.calculateEnergyGpu(k0, u0, 0);
+    EXPECT_DOUBLE_EQ(k0, 0.0);
+    EXPECT_DOUBLE_EQ(u0, 0.0);
+
+    sim.calculateEnergyGpu(k1, u1, 1);
+    EXPECT_DOUBLE_EQ(k1, 0.0);
+    EXPECT_DOUBLE_EQ(u1, 0.0);
+}
+
+#if defined(NBODY_ENABLE_CUDA_KERNELS)
+TEST(GpuEquivalence, EnergyInvalidMethodThrows) {
+    const int N = 10;
+    NBodySimulator sim(1.0, 0.1);
+    sim.initializeRandom(N, 1000, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    double k = 0.0, u = 0.0;
+    EXPECT_THROW(sim.calculateEnergyGpu(k, u, 999), std::runtime_error);
+}
+#endif
+
+// ---------------------------------------------------------------------------
+// Tests analiticos: aceleracion contra valor conocido (sin seed random).
+// Requisito del laboratorio: "aceleracion entre 2-3 cuerpos CPU vs analitico".
+// ---------------------------------------------------------------------------
+
+TEST(GpuEquivalence, AnalyticalTwoBodies) {
+    // m1 en (0,0), m2 en (1,0). G=m1=m2=1, eps=0.1.
+    // a1x = G * m2 / (dx^2 + eps^2)^(3/2)
+    //     = 1 / (1 + 0.01)^1.5 = 1 / 1.01^1.5
+    const double G = 1.0;
+    const double eps = 0.1;
+    const double dx = 1.0;
+    const double expected_a1x = G * 1.0 * dx / std::pow(dx * dx + eps * eps, 1.5);
+    const double expected_a2x = -expected_a1x;
+
+    NBodySimulator cpuSim(G, eps);
+    NBodySimulator gpuSim0(G, eps);
+    NBodySimulator gpuSim1(G, eps);
+
+    Particle p1(0.0, 0.0, 0.0, 0.0, 1.0);
+    Particle p2(1.0, 0.0, 0.0, 0.0, 1.0);
+
+    cpuSim.addParticle(p1); cpuSim.addParticle(p2);
+    gpuSim0.addParticle(p1); gpuSim0.addParticle(p2);
+    gpuSim1.addParticle(p1); gpuSim1.addParticle(p2);
+
+    cpuSim.computeAccelerations();
+    gpuSim0.computeAccelerationsGpu(0, 256);
+    gpuSim1.computeAccelerationsGpu(1, 256);
+
+    const auto& cpu = cpuSim.getParticles();
+    const auto& gpu0 = gpuSim0.getParticles();
+    const auto& gpu1 = gpuSim1.getParticles();
+
+    EXPECT_NEAR(cpu[0].getAx(), expected_a1x, 1e-15);
+    EXPECT_NEAR(cpu[0].getAy(), 0.0, 1e-15);
+    EXPECT_NEAR(cpu[1].getAx(), expected_a2x, 1e-15);
+    EXPECT_NEAR(cpu[1].getAy(), 0.0, 1e-15);
+
+    EXPECT_TRUE(compareAccelerations(gpu0[0], cpu[0]))
+        << "gpu variant=0 vs cpu";
+    EXPECT_TRUE(compareAccelerations(gpu1[0], cpu[0]))
+        << "gpu variant=1 vs cpu";
+}
+
+TEST(GpuEquivalence, AnalyticalThreeBodies) {
+    // m1(0,0) m2(1,0) m3(0,1), G=mi=1, eps=0.1.
+    // a1: contribucion de m2 en +x, de m3 en +y → magnitudes iguales
+    // a2: contribucion de m1 en -x, de m3 en (-1,+1)
+    // a3: contribucion de m1 en -y, de m2 en (+1,-1)
+    const double G = 1.0;
+    const double eps = 0.1;
+
+    // distancia unitaria (dx=1,dy=0 o dx=0,dy=1): r2 = 1 + 0.01
+    const double s1 = 1.0 / std::pow(1.0 + eps * eps, 1.5);
+    // distancia diagonal (dx=1,dy=1): r2 = 2 + 0.01
+    const double s2 = 1.0 / std::pow(2.0 + eps * eps, 1.5);
+
+    const double a1x = s1;          // m2 aporta +x
+    const double a1y = s1;          // m3 aporta +y
+    const double a2x = -s1 - s2;    // m1: -x, m3: dx=-1
+    const double a2y = s2;          // m3: dy=+1
+    const double a3x = s2;          // m2: dx=+1
+    const double a3y = -s1 - s2;    // m1: -y, m2: dy=-1
+
+    NBodySimulator cpuSim(G, eps);
+    NBodySimulator gpuSim0(G, eps);
+    NBodySimulator gpuSim1(G, eps);
+
+    Particle p1(0.0, 0.0, 0.0, 0.0, 1.0);
+    Particle p2(1.0, 0.0, 0.0, 0.0, 1.0);
+    Particle p3(0.0, 1.0, 0.0, 0.0, 1.0);
+
+    cpuSim.addParticle(p1); cpuSim.addParticle(p2); cpuSim.addParticle(p3);
+    gpuSim0.addParticle(p1); gpuSim0.addParticle(p2); gpuSim0.addParticle(p3);
+    gpuSim1.addParticle(p1); gpuSim1.addParticle(p2); gpuSim1.addParticle(p3);
+
+    cpuSim.computeAccelerations();
+    gpuSim0.computeAccelerationsGpu(0, 256);
+    gpuSim1.computeAccelerationsGpu(1, 256);
+
+    const auto& cpu = cpuSim.getParticles();
+    const auto& gpu0 = gpuSim0.getParticles();
+    const auto& gpu1 = gpuSim1.getParticles();
+
+    // CPU vs analitico
+    EXPECT_NEAR(cpu[0].getAx(), a1x, 1e-15) << "cpu body0 ax";
+    EXPECT_NEAR(cpu[0].getAy(), a1y, 1e-15) << "cpu body0 ay";
+    EXPECT_NEAR(cpu[1].getAx(), a2x, 1e-15) << "cpu body1 ax";
+    EXPECT_NEAR(cpu[1].getAy(), a2y, 1e-15) << "cpu body1 ay";
+    EXPECT_NEAR(cpu[2].getAx(), a3x, 1e-15) << "cpu body2 ax";
+    EXPECT_NEAR(cpu[2].getAy(), a3y, 1e-15) << "cpu body2 ay";
+
+    // GPU vs analitico (tolerancia GPU por rsqrt)
+    for (size_t i = 0; i < 3; ++i) {
+        EXPECT_TRUE(compareAccelerations(gpu0[i], cpu[i]))
+            << "gpu variant=0 body" << i;
+        EXPECT_TRUE(compareAccelerations(gpu1[i], cpu[i]))
+            << "gpu variant=1 body" << i;
+    }
+}
+
 TEST(GpuEquivalence, PhysicalInvariantsGpu) {
     HarnessConfig cfg;
     cfg.numBodies = 50;
@@ -198,7 +361,99 @@ TEST_P(GpuEquivalenceParameterized, MultiStepScale) {
 INSTANTIATE_TEST_SUITE_P(
     SweepN,
     GpuEquivalenceParameterized,
-    ::testing::Values(2, 3, 4, 5, 10, 50, 100, 200)
+    ::testing::Values(2, 3, 4, 5, 10, 50, 100, 200, 257, 512, 1000, 2000)
+);
+
+// ---------------------------------------------------------------------------
+// Tests de cobertura de block_size y variant en computeAccelerationsGpu
+// Usan ::testing::Combine para barrer todas las combinaciones de
+// (N, block_size, variant).
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Test GPU vs CPU para todas las combinaciones de (N, block_size, variant).
+// Cubre invariancia: mismo N, distinto block_size o variant debe producir
+// el mismo resultado que CPU dentro de tolerancia.
+// ---------------------------------------------------------------------------
+
+class GpuBlockSizeVariantVsCpu
+    : public ::testing::TestWithParam<std::tuple<int, int, int>> {};
+
+TEST_P(GpuBlockSizeVariantVsCpu, AccelerationsMatchCpu) {
+    int N = std::get<0>(GetParam());
+    int block_size = std::get<1>(GetParam());
+    int variant = std::get<2>(GetParam());
+
+    unsigned int seed = static_cast<unsigned int>(N * 1000 + block_size + variant * 777);
+    NBodySimulator cpuSim(1.0, 0.1);
+    NBodySimulator gpuSim(1.0, 0.1);
+
+    cpuSim.initializeRandom(N, seed, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+    gpuSim.initializeRandom(N, seed, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    cpuSim.computeAccelerations();
+    gpuSim.computeAccelerationsGpu(variant, block_size);
+
+    const auto& cpu = cpuSim.getParticles();
+    const auto& gpu = gpuSim.getParticles();
+    ASSERT_EQ(cpu.size(), gpu.size());
+
+    for (size_t i = 0; i < cpu.size(); ++i) {
+        EXPECT_TRUE(compareAccelerations(cpu[i], gpu[i]))
+            << "N=" << N << " block=" << block_size
+            << " variant=" << variant << " i=" << i;
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    SweepBlockSizeVariant,
+    GpuBlockSizeVariantVsCpu,
+    ::testing::Combine(
+        ::testing::Values(50, 65, 129, 257, 513, 1025),
+        ::testing::Values(64, 128, 256, 512, 1024),
+        ::testing::Values(0, 1)
+    )
+);
+
+// ---------------------------------------------------------------------------
+// Test equivalencia variant=0 vs variant=1 directa (sin pasar por CPU).
+// N que cruzan bordes de bloque para todos los block_size.
+// ---------------------------------------------------------------------------
+
+class GpuAccelerationsVariantEquivalence
+    : public ::testing::TestWithParam<std::tuple<int, int>> {};
+
+TEST_P(GpuAccelerationsVariantEquivalence, Variant0VsVariant1) {
+    int N = std::get<0>(GetParam());
+    int block_size = std::get<1>(GetParam());
+
+    unsigned int seed = static_cast<unsigned int>(N * 2000 + block_size + 5000);
+    NBodySimulator sim0(1.0, 0.1);
+    NBodySimulator sim1(1.0, 0.1);
+
+    sim0.initializeRandom(N, seed, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+    sim1.initializeRandom(N, seed, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    sim0.computeAccelerationsGpu(0, block_size);
+    sim1.computeAccelerationsGpu(1, block_size);
+
+    const auto& p0 = sim0.getParticles();
+    const auto& p1 = sim1.getParticles();
+    ASSERT_EQ(p0.size(), p1.size());
+
+    for (size_t i = 0; i < p0.size(); ++i) {
+        EXPECT_TRUE(compareAccelerations(p0[i], p1[i]))
+            << "N=" << N << " block=" << block_size << " i=" << i;
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    SweepVariantEquiv,
+    GpuAccelerationsVariantEquivalence,
+    ::testing::Combine(
+        ::testing::Values(50, 65, 129, 257, 513, 1025),
+        ::testing::Values(64, 128, 256, 512, 1024)
+    )
 );
 
 // ---------------------------------------------------------------------------
@@ -237,12 +492,14 @@ TEST(HarnessConsistency, DifferentSeedsProduceDifferentStates) {
             pA[i].getY() != pB[i].getY() ||
             pA[i].getVx() != pB[i].getVx() ||
             pA[i].getVy() != pB[i].getVy() ||
+            pA[i].getAx() != pB[i].getAx() ||
+            pA[i].getAy() != pB[i].getAy() ||
             pA[i].getMass() != pB[i].getMass()) {
             anyDifferent = true;
             break;
         }
     }
-    EXPECT_TRUE(anyDifferent) << "Semillas distintas deberian generar estados distintos";
+    EXPECT_TRUE(anyDifferent) << "Different seeds should produce different states";
 }
 
 TEST(HarnessConsistency, SameSeedProducesIdenticalStates) {
@@ -271,6 +528,8 @@ TEST(HarnessConsistency, SameSeedProducesIdenticalStates) {
         EXPECT_DOUBLE_EQ(pA[i].getY(), pB[i].getY());
         EXPECT_DOUBLE_EQ(pA[i].getVx(), pB[i].getVx());
         EXPECT_DOUBLE_EQ(pA[i].getVy(), pB[i].getVy());
+        EXPECT_DOUBLE_EQ(pA[i].getAx(), pB[i].getAx());
+        EXPECT_DOUBLE_EQ(pA[i].getAy(), pB[i].getAy());
         EXPECT_DOUBLE_EQ(pA[i].getMass(), pB[i].getMass());
     }
 }
