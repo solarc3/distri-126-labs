@@ -386,6 +386,7 @@ TEST(OpenMPOverloadTest, LastprivateReturnsLastParticle) {
 // real y validan la equivalencia numerica.
 
 TEST(GpuValidation, AccelerationsN2) {
+    SKIP_IF_NO_GPU();
     HarnessConfig cfg;
     cfg.numBodies = 2;
     cfg.seed = 100;
@@ -395,6 +396,7 @@ TEST(GpuValidation, AccelerationsN2) {
 }
 
 TEST(GpuValidation, AccelerationsN3) {
+    SKIP_IF_NO_GPU();
     HarnessConfig cfg;
     cfg.numBodies = 3;
     cfg.seed = 200;
@@ -404,6 +406,7 @@ TEST(GpuValidation, AccelerationsN3) {
 }
 
 TEST(GpuValidation, RegressionAccelerationArrays) {
+    SKIP_IF_NO_GPU();
     HarnessConfig cfg;
     cfg.numBodies = 200;
     cfg.seed = 42;
@@ -413,6 +416,7 @@ TEST(GpuValidation, RegressionAccelerationArrays) {
 }
 
 TEST(GpuValidation, FullStepN2) {
+    SKIP_IF_NO_GPU();
     HarnessConfig cfg;
     cfg.numBodies = 2;
     cfg.seed = 300;
@@ -423,6 +427,7 @@ TEST(GpuValidation, FullStepN2) {
 }
 
 TEST(GpuValidation, MultiStepN3) {
+    SKIP_IF_NO_GPU();
     HarnessConfig cfg;
     cfg.numBodies = 3;
     cfg.seed = 400;
@@ -434,6 +439,7 @@ TEST(GpuValidation, MultiStepN3) {
 }
 
 TEST(GpuValidation, VariantZeroExplicit) {
+    SKIP_IF_NO_GPU();
     NBodySimulator cpuSim(1.0, 0.1);
     NBodySimulator gpuSim(1.0, 0.1);
     Particle p1(0.0, 0.0, 0.0, 0.0, 1.0);
@@ -454,6 +460,7 @@ TEST(GpuValidation, VariantZeroExplicit) {
 }
 
 TEST(GpuValidation, VariantOneExplicit) {
+    SKIP_IF_NO_GPU();
     NBodySimulator cpuSim(1.0, 0.1);
     NBodySimulator gpuSim(1.0, 0.1);
     Particle p1(0.0, 0.0, 0.0, 0.0, 2.0);
@@ -474,6 +481,7 @@ TEST(GpuValidation, VariantOneExplicit) {
 }
 
 TEST(GpuValidation, BlockSize256) {
+    SKIP_IF_NO_GPU();
     NBodySimulator cpuSim(1.0, 0.1);
     NBodySimulator gpuSim(1.0, 0.1);
     cpuSim.initializeRandom(50, 500, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
@@ -491,6 +499,7 @@ TEST(GpuValidation, BlockSize256) {
 }
 
 TEST(GpuValidation, BlockSize512) {
+    SKIP_IF_NO_GPU();
     NBodySimulator cpuSim(1.0, 0.1);
     NBodySimulator gpuSim(1.0, 0.1);
     cpuSim.initializeRandom(50, 600, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
@@ -508,6 +517,7 @@ TEST(GpuValidation, BlockSize512) {
 }
 
 TEST(GpuValidation, StepEulerGpuExplicit) {
+    SKIP_IF_NO_GPU();
     const double dt = 0.01;
     NBodySimulator cpuSim(1.0, 0.1);
     NBodySimulator gpuSim(1.0, 0.1);
@@ -530,6 +540,7 @@ TEST(GpuValidation, StepEulerGpuExplicit) {
 }
 
 TEST(GpuValidation, TolerancesAreApplied) {
+    SKIP_IF_NO_GPU();
     EXPECT_DOUBLE_EQ(kGpuRtol, 1e-4);
     EXPECT_DOUBLE_EQ(kGpuAtol, 1e-8);
 }
