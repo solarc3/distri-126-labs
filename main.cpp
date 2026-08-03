@@ -8,6 +8,7 @@
 #include <random>
 #include <cmath>
 #include <cstdlib>
+#include <exception>
 #include "NBodySimulator.h"
 #include "Benchmark.h"
 #include "MetricsCalculator.h"
@@ -28,6 +29,7 @@ int main(int argc, char* argv[]) {
     unsigned int seed = 42;
     bool run_benchmark = false;
     bool run_benchmark_all = false;
+    bool run_benchmark_gpu = false;
     bool skip_serial = false;
     double serial_time_override = -1.0;
     std::string force_mode = "soa";
@@ -49,6 +51,8 @@ int main(int argc, char* argv[]) {
             run_benchmark_all = true;
         } else if (arg == "--benchmark" || arg == "-benchmark") {
             run_benchmark = true;
+        } else if (arg == "--benchmark-gpu") {
+            run_benchmark_gpu = true;
         } else if (arg == "--bodies" || arg == "-n") {
             num_particles = std::stoi(require_value(arg));
         } else if (arg == "--steps") {
@@ -87,7 +91,7 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--force-mode") {
             force_mode = require_value(arg);
         } else if (arg == "--help" || arg == "-h") {
-            std::cout << "Uso: ./nbody_sim [--benchmark|--benchmark-all] [opciones]\n"
+            std::cout << "Uso: ./nbody_sim [--benchmark|--benchmark-all|--benchmark-gpu] [opciones]\n"
                       << "Opciones:\n"
                       << "  --bodies N             Numero de cuerpos (default: 2000)\n"
                       << "  --steps N              Pasos temporales (default: 100)\n"
@@ -100,7 +104,9 @@ int main(int argc, char* argv[]) {
                       << "  --variant-threads N    Hilos para schedules/chunks/sync (default: 4)\n"
                       << "  --skip-serial          Saltea la medicion T=1 (usar con --serial-seconds)\n"
                       << "  --serial-seconds X     Tiempo serial pre-calculado para speedup\n"
-                      << "  --force-mode M         Calculo de fuerzas disponible: soa (default: soa)\n";
+                      << "  --force-mode M         Calculo de fuerzas disponible: soa (default: soa)\n"
+                      << "  --benchmark-gpu        Matriz GPU kernel-only/end-to-end x blockDim.x (requiere build CUDA).\n"
+                      << "                         Usa N fijos {256,512,1024,2000}: ignora --bodies/--steps.\n";
             return 0;
         } else {
             seed = static_cast<unsigned int>(std::stoul(arg));
@@ -116,6 +122,84 @@ int main(int argc, char* argv[]) {
     if (force_mode != "soa") {
         std::cerr << "Error: esta version limpia solo incluye --force-mode soa." << std::endl;
         return 1;
+    }
+
+    if (run_benchmark_gpu) {
+#if !defined(NBODY_ENABLE_CUDA_KERNELS)
+        std::cerr << "Error: este binario fue compilado sin NBODY_ENABLE_CUDA_KERNELS "
+                     "(nvcc/kernels/*.cu no disponibles al momento de compilar).\n"
+                  << "Recompila en una maquina con CUDA Toolkit (ver Dockerfile/Makefile) "
+                     "o corre en el nodo GPU del cluster DIINF.\n";
+        return 1;
+#else
+        std::cout << "--- Modo Benchmark GPU (matriz N x variante x blockDim.x, seccion 8.2 del enunciado) ---\n"
+                  << "Repeticiones por punto: " << repetitions << " | semilla: " << seed << "\n"
+                  << "NOTA: variant=1 (shared memory) todavia ejecuta el kernel basico por dentro "
+                     "hasta que se integre el kernel shared (issue #20); los tiempos se actualizaran cuando eso ocurra.\n\n";
+
+        const std::vector<int> gpu_n_values = {256, 512, 1024, 2000};
+        const std::vector<int> gpu_variants = {0, 1};
+        const std::vector<int> gpu_block_sizes = {64, 128, 256, 512, 1024};
+        const int cpu_gpu_block_size = 256;
+
+        try {
+            Benchmark gpu_bench(repetitions);
+
+            std::ofstream blockdim_file("blockdim_study.dat");
+            if (!blockdim_file.is_open()) {
+                std::cerr << "Error: no se pudo abrir 'blockdim_study.dat' para escritura.\n"
+                          << "Verifica permisos de escritura en el directorio de trabajo.\n";
+                return 1;
+            }
+            blockdim_file << "# N\tvariant\tblock_size\tkernel_mean_s\tkernel_std_s\tend2end_mean_s\tend2end_std_s\n";
+
+            std::ofstream gpu_results_file("gpu_benchmark_results.dat");
+            if (!gpu_results_file.is_open()) {
+                std::cerr << "Error: no se pudo abrir 'gpu_benchmark_results.dat' para escritura.\n"
+                          << "Verifica permisos de escritura en el directorio de trabajo.\n";
+                return 1;
+            }
+            gpu_results_file << "# N\tvariant\tblock_size\tcpu_mean_s\tcpu_std_s\tgpu_mean_s\tgpu_std_s\tspeedup\tspeedup_err\n";
+
+            for (int n : gpu_n_values) {
+                for (int variant : gpu_variants) {
+                    for (int block_size : gpu_block_sizes) {
+                        GpuBenchmarkResult kernel_only =
+                            gpu_bench.benchmarkKernelOnly(n, variant, block_size, seed, G, epsilon);
+                        GpuBenchmarkResult end_to_end =
+                            gpu_bench.benchmarkEndToEnd(n, variant, block_size, seed, G, epsilon);
+
+                        blockdim_file << n << "\t" << variant << "\t" << block_size << "\t"
+                                      << kernel_only.mean_time << "\t" << kernel_only.std_dev << "\t"
+                                      << end_to_end.mean_time << "\t" << end_to_end.std_dev << "\n";
+
+                        std::cout << "  N=" << n << " variant=" << variant << " block=" << block_size
+                                  << "  kernel-only=" << kernel_only.mean_time << "s"
+                                  << "  end-to-end=" << end_to_end.mean_time << "s\n";
+                    }
+
+                    CpuGpuComparison cmp =
+                        gpu_bench.compareCpuGpu(n, variant, cpu_gpu_block_size, seed, G, epsilon);
+                    gpu_results_file << n << "\t" << variant << "\t" << cpu_gpu_block_size << "\t"
+                                      << cmp.cpu_mean << "\t" << cmp.cpu_std << "\t"
+                                      << cmp.gpu_mean << "\t" << cmp.gpu_std << "\t"
+                                      << cmp.speedup << "\t" << cmp.speedup_err << "\n";
+                }
+            }
+
+            std::cout << "\nBenchmark GPU completado. Datos en 'blockdim_study.dat' y 'gpu_benchmark_results.dat'.\n"
+                      << "importante: para el reporte final esta matriz debe correrse en el nodo GPU del "
+                         "cluster DIINF (ver README > Benchmarks GPU).\n";
+        } catch (const std::exception& e) {
+            std::cerr << "\nError ejecutando el benchmark GPU: " << e.what() << "\n"
+                      << "Esto normalmente significa que no hay una GPU NVIDIA real disponible en esta "
+                         "maquina/contenedor (revisa 'nvidia-smi' y, en Docker, que se haya usado --gpus all).\n"
+                         "--benchmark-gpu solo produce datos validos en una maquina con GPU, "
+                         "p.ej. el nodo GPU del cluster DIINF.\n";
+            return 1;
+        }
+        return 0;
+#endif
     }
 
     auto compute_forces = [&](NBodySimulator& sim) {

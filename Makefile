@@ -16,6 +16,7 @@ TEST_CXXFLAGS = $(WARN_FLAGS) -Wno-unknown-pragmas $(OPT_FLAGS) $(OMP_FLAGS) $(S
 # objetos C++ solo cuando existen. Sin kernels, el build sigue siendo 100% CPU/g++.
 NVCC ?= nvcc
 NVCCFLAGS ?= -O3 -std=c++17 -Xcompiler -Wall,-Wextra
+CUDA_HOME ?= /usr/local/cuda
 CU_SOURCES := $(wildcard kernels/*.cu)
 CU_OBJS := $(CU_SOURCES:.cu=.o)
 NVCC_AVAILABLE := $(shell command -v $(NVCC) >/dev/null 2>&1 && echo 1 || echo 0)
@@ -45,7 +46,7 @@ endif
 endif
 
 
-.PHONY: all benchmark benchmark-all analysis clean test test-cuda-buffer test-cuda-soa vec-report profile cuda-info
+.PHONY: all benchmark benchmark-all analysis clean test test-gpu test-cuda-buffer test-cuda-soa vec-report profile cuda-info benchmark-gpu
 
 all: $(TARGET)
 
@@ -69,6 +70,11 @@ benchmark-all: $(TARGET)
 	./$(TARGET) --benchmark-all $(ARGS)
 	@echo "Generando graficos de rendimiento..."
 	python3 plot_performance.py
+
+benchmark-gpu: $(TARGET)
+	./$(TARGET) --benchmark-gpu $(ARGS)
+	@echo "Generando graficos GPU..."
+	python3 plot_gpu_benchmarks.py
 
 analysis: $(TARGET)
 	@echo "Ejecutando benchmarks completos..."
@@ -95,6 +101,14 @@ TEST_SOURCES = tests/test_physics.cpp tests/test_gpu_equivalence.cpp Particle.cp
 
 test: $(TEST_SOURCES) $(TEST_OBJS)
 	$(CXX) $(TEST_CXXFLAGS) -o $(TEST_TARGET) $(TEST_SOURCES) $(TEST_OBJS) $(LDFLAGS) -lgtest -lgtest_main -pthread
+	./$(TEST_TARGET)
+
+test-gpu: $(TEST_SOURCES) $(CU_OBJS)
+	@if [ -z "$(CUDA_KERNEL_FLAGS)" ]; then \
+		echo "test-gpu requiere nvcc + kernels/*.cu (CUDA Toolkit); ejecuta 'make cuda-info' para diagnosticar."; \
+		exit 1; \
+	fi
+	$(CXX) $(TEST_CXXFLAGS) $(CUDA_KERNEL_FLAGS) -o $(TEST_TARGET) $(TEST_SOURCES) $(CU_OBJS) $(LDFLAGS) -lgtest -lgtest_main -pthread
 	./$(TEST_TARGET)
 
 test-cuda-buffer: tests/test_cuda_buffer.cpp CudaBuffer.h

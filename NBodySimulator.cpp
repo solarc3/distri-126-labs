@@ -788,25 +788,48 @@ void NBodySimulator::launchGpuKernel(int n, int variant, int block_size) {
     if (n == 0) return;
 
 #if defined(NBODY_ENABLE_CUDA_KERNELS)
-    syncSoAFromParticles(n);
-    double eps2 = epsilon * epsilon;
-
-    deviceSoa_.allocate(n);
-    deviceSoa_.copyHostToDevice(soa_x.data(), soa_y.data(), soa_mass.data(), n);
-
-    launchComputeAccelerations(
-        deviceSoa_.d_x.data(), deviceSoa_.d_y.data(), deviceSoa_.d_mass.data(),
-        deviceSoa_.d_ax.data(), deviceSoa_.d_ay.data(),
-        n, G, eps2, variant, block_size);
-
-    deviceSoa_.synchronize();
-
-    deviceSoa_.copyDeviceToHost(soa_ax.data(), soa_ay.data(), n);
-    syncAccelerationsToParticles(n);
+    uploadGpuBuffers();
+    computeAccelerationsGpuKernelOnly(variant, block_size);
+    downloadGpuAccelerations();
 #else
     (void)variant;
     (void)block_size;
     computeAccelerationsSoAImpl(0, 0, false);
+#endif
+}
+
+void NBodySimulator::uploadGpuBuffers() {
+    const int n = getNumParticles();
+    if (n == 0) return;
+#if defined(NBODY_ENABLE_CUDA_KERNELS)
+    syncSoAFromParticles(n);
+    deviceSoa_.allocate(n);
+    deviceSoa_.copyHostToDevice(soa_x.data(), soa_y.data(), soa_mass.data(), n);
+#endif
+}
+
+void NBodySimulator::computeAccelerationsGpuKernelOnly(int variant, int block_size) {
+    const int n = getNumParticles();
+    if (n == 0) return;
+#if defined(NBODY_ENABLE_CUDA_KERNELS)
+    const double eps2 = epsilon * epsilon;
+    launchComputeAccelerations(
+        deviceSoa_.d_x.data(), deviceSoa_.d_y.data(), deviceSoa_.d_mass.data(),
+        deviceSoa_.d_ax.data(), deviceSoa_.d_ay.data(),
+        n, G, eps2, variant, block_size);
+    deviceSoa_.synchronize();
+#else
+    (void)variant;
+    (void)block_size;
+#endif
+}
+
+void NBodySimulator::downloadGpuAccelerations() {
+    const int n = getNumParticles();
+    if (n == 0) return;
+#if defined(NBODY_ENABLE_CUDA_KERNELS)
+    deviceSoa_.copyDeviceToHost(soa_ax.data(), soa_ay.data(), n);
+    syncAccelerationsToParticles(n);
 #endif
 }
 
