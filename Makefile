@@ -27,15 +27,27 @@ OBJS = $(SRCS:.cpp=.o)
 
 ifneq ($(CU_SOURCES),)
 ifeq ($(NVCC_AVAILABLE),1)
+# Derivar CUDA_HOME de la ubicación real de nvcc (ej. /usr/local/cuda/bin/nvcc ->
+# /usr/local/cuda) en vez de asumir una ruta fija; con fallback razonable si falla.
+CUDA_HOME := $(patsubst %/,%,$(dir $(patsubst %/,%,$(dir $(shell command -v $(NVCC))))))
+ifneq ($(CU_SOURCES),)
+ifeq ($(NVCC_AVAILABLE),1)
+# Derivar CUDA_HOME de la ubicación real de nvcc (ej. /usr/local/cuda/bin/nvcc ->
+# /usr/local/cuda) en vez de asumir una ruta fija; con fallback razonable si falla.
+CUDA_HOME := $(patsubst %/,%,$(dir $(patsubst %/,%,$(dir $(shell command -v $(NVCC))))))
+ifeq ($(CUDA_HOME),)
+CUDA_HOME := /usr/local/cuda
+endif
 OBJS += $(CU_OBJS)
-
-CUDA_KERNEL_FLAGS := -DNBODY_ENABLE_CUDA_KERNELS -I$(CUDA_HOME)/include
-CXXFLAGS += $(CUDA_KERNEL_FLAGS)
+CXXFLAGS += -DNBODY_ENABLE_CUDA_KERNELS -I$(CUDA_HOME)/include
+TEST_CXXFLAGS += -DNBODY_ENABLE_CUDA_KERNELS -I$(CUDA_HOME)/include
+TEST_OBJS += $(CU_OBJS)
 LDFLAGS += -L$(CUDA_HOME)/lib64 -lcudart
 else
 $(warning CUDA kernels found but '$(NVCC)' is not available; building CPU-only target)
 endif
 endif
+
 
 .PHONY: all benchmark benchmark-all analysis clean test test-gpu test-cuda-buffer test-cuda-soa vec-report profile cuda-info benchmark-gpu
 
