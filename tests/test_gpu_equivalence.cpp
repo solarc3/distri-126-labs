@@ -95,6 +95,7 @@ TEST(GpuTestHarness, CompareFloatArraySizeMismatch) {
 // calculateEnergyGpu() soporta method=0 (shared memory) y method=1 (atomic).
 
 TEST(GpuEquivalence, AccelerationsN2) {
+    SKIP_IF_NO_GPU();
     HarnessConfig cfg;
     cfg.numBodies = 2;
     cfg.seed = 100;
@@ -105,6 +106,7 @@ TEST(GpuEquivalence, AccelerationsN2) {
 }
 
 TEST(GpuEquivalence, AccelerationsN3) {
+    SKIP_IF_NO_GPU();
     HarnessConfig cfg;
     cfg.numBodies = 3;
     cfg.seed = 200;
@@ -115,6 +117,7 @@ TEST(GpuEquivalence, AccelerationsN3) {
 }
 
 TEST(GpuEquivalence, FullStepN2) {
+    SKIP_IF_NO_GPU();
     HarnessConfig cfg;
     cfg.numBodies = 2;
     cfg.seed = 300;
@@ -126,6 +129,7 @@ TEST(GpuEquivalence, FullStepN2) {
 }
 
 TEST(GpuEquivalence, MultiStepN2) {
+    SKIP_IF_NO_GPU();
     HarnessConfig cfg;
     cfg.numBodies = 2;
     cfg.seed = 400;
@@ -138,6 +142,7 @@ TEST(GpuEquivalence, MultiStepN2) {
 }
 
 TEST(GpuEquivalence, RegressionFullSystem) {
+    SKIP_IF_NO_GPU();
     HarnessConfig cfg;
     cfg.numBodies = 200;
     cfg.seed = 500;
@@ -150,6 +155,7 @@ TEST(GpuEquivalence, RegressionFullSystem) {
 }
 
 TEST(GpuEquivalence, EnergyEquivalenceGpu) {
+    SKIP_IF_NO_GPU();
     HarnessConfig cfg;
     cfg.numBodies = 2;
     cfg.seed = 600;
@@ -160,6 +166,7 @@ TEST(GpuEquivalence, EnergyEquivalenceGpu) {
 }
 
 TEST(GpuEquivalence, EnergyMethod1VsMethod0) {
+    SKIP_IF_NO_GPU();
     const int N = 100;
     NBodySimulator sim(1.0, 0.1);
     sim.initializeRandom(N, 800, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
@@ -175,6 +182,7 @@ TEST(GpuEquivalence, EnergyMethod1VsMethod0) {
 }
 
 TEST(GpuEquivalence, EnergyAtomicVsCpu) {
+    SKIP_IF_NO_GPU();
     const int N = 100;
     NBodySimulator sim(1.0, 0.1);
     sim.initializeRandom(N, 900, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
@@ -192,6 +200,7 @@ TEST(GpuEquivalence, EnergyAtomicVsCpu) {
 }
 
 TEST(GpuEquivalence, EnergyEmptySystemReturnsZero) {
+    SKIP_IF_NO_GPU();
     NBodySimulator sim(1.0, 0.1);
 
     double k0 = 0.0, u0 = 0.0;
@@ -208,6 +217,7 @@ TEST(GpuEquivalence, EnergyEmptySystemReturnsZero) {
 
 #if defined(NBODY_ENABLE_CUDA_KERNELS)
 TEST(GpuEquivalence, EnergyInvalidMethodThrows) {
+    SKIP_IF_NO_GPU();
     const int N = 10;
     NBodySimulator sim(1.0, 0.1);
     sim.initializeRandom(N, 1000, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
@@ -223,6 +233,7 @@ TEST(GpuEquivalence, EnergyInvalidMethodThrows) {
 // ---------------------------------------------------------------------------
 
 TEST(GpuEquivalence, AnalyticalTwoBodies) {
+    SKIP_IF_NO_GPU();
     // m1 en (0,0), m2 en (1,0). G=m1=m2=1, eps=0.1.
     // a1x = G * m2 / (dx^2 + eps^2)^(3/2)
     //     = 1 / (1 + 0.01)^1.5 = 1 / 1.01^1.5
@@ -263,6 +274,7 @@ TEST(GpuEquivalence, AnalyticalTwoBodies) {
 }
 
 TEST(GpuEquivalence, AnalyticalThreeBodies) {
+    SKIP_IF_NO_GPU();
     // m1(0,0) m2(1,0) m3(0,1), G=mi=1, eps=0.1.
     // a1: contribucion de m2 en +x, de m3 en +y → magnitudes iguales
     // a2: contribucion de m1 en -x, de m3 en (-1,+1)
@@ -320,6 +332,7 @@ TEST(GpuEquivalence, AnalyticalThreeBodies) {
 }
 
 TEST(GpuEquivalence, PhysicalInvariantsGpu) {
+    SKIP_IF_NO_GPU();
     HarnessConfig cfg;
     cfg.numBodies = 50;
     cfg.seed = 700;
@@ -337,6 +350,7 @@ TEST(GpuEquivalence, PhysicalInvariantsGpu) {
 class GpuEquivalenceParameterized : public ::testing::TestWithParam<int> {};
 
 TEST_P(GpuEquivalenceParameterized, AccelerationsScale) {
+    SKIP_IF_NO_GPU();
     int N = GetParam();
     HarnessConfig cfg;
     cfg.numBodies = N;
@@ -347,6 +361,7 @@ TEST_P(GpuEquivalenceParameterized, AccelerationsScale) {
 }
 
 TEST_P(GpuEquivalenceParameterized, MultiStepScale) {
+    SKIP_IF_NO_GPU();
     int N = GetParam();
     HarnessConfig cfg;
     cfg.numBodies = N;
@@ -380,6 +395,7 @@ class GpuBlockSizeVariantVsCpu
     : public ::testing::TestWithParam<std::tuple<int, int, int>> {};
 
 TEST_P(GpuBlockSizeVariantVsCpu, AccelerationsMatchCpu) {
+    SKIP_IF_NO_GPU();
     int N = std::get<0>(GetParam());
     int block_size = std::get<1>(GetParam());
     int variant = std::get<2>(GetParam());
@@ -424,6 +440,7 @@ class GpuAccelerationsVariantEquivalence
     : public ::testing::TestWithParam<std::tuple<int, int>> {};
 
 TEST_P(GpuAccelerationsVariantEquivalence, Variant0VsVariant1) {
+    SKIP_IF_NO_GPU();
     int N = std::get<0>(GetParam());
     int block_size = std::get<1>(GetParam());
 
@@ -545,6 +562,7 @@ class GpuZeroSofteningPadding
     : public ::testing::TestWithParam<std::tuple<int, int>> {};
 
 TEST_P(GpuZeroSofteningPadding, NoNaNAndVariantsMatch) {
+    SKIP_IF_NO_GPU();
     const int N = std::get<0>(GetParam());
     const int block_size = std::get<1>(GetParam());
     ASSERT_NE(N % block_size, 0) << "el test necesita un tile parcial";

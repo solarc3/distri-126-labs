@@ -6,6 +6,30 @@
 #include <vector>
 #include <string>
 #include "../Particle.h"
+#include <gtest/gtest.h>
+
+#ifdef NBODY_ENABLE_CUDA_KERNELS
+#include <cuda_runtime.h>
+
+// Los runners de CI (GitHub Actions) compilan y linkean los kernels reales
+// pero no tienen GPU fisica: cudaGetDeviceCount() devuelve 0 en vez de un
+// error de compilacion. Sin esta guarda, los tests de equivalencia CPU vs
+// GPU comparan el resultado real contra basura de un kernel que nunca corrio.
+inline bool gpuDeviceAvailable() {
+    int deviceCount = 0;
+    cudaError_t err = cudaGetDeviceCount(&deviceCount);
+    return err == cudaSuccess && deviceCount > 0;
+}
+
+#define SKIP_IF_NO_GPU()                                                    \
+    do {                                                                    \
+        if (!gpuDeviceAvailable()) {                                        \
+            GTEST_SKIP() << "No hay GPU CUDA disponible en este runner";    \
+        }                                                                   \
+    } while (0)
+#else
+#define SKIP_IF_NO_GPU() do {} while (0)
+#endif
 
 constexpr double kGpuRtol = 1e-4;
 constexpr double kGpuAtol = 1e-8;
