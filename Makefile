@@ -16,6 +16,8 @@ TEST_CXXFLAGS = $(WARN_FLAGS) -Wno-unknown-pragmas $(OPT_FLAGS) $(OMP_FLAGS) $(S
 # objetos C++ solo cuando existen. Sin kernels, el build sigue siendo 100% CPU/g++.
 NVCC ?= nvcc
 NVCCFLAGS ?= -O3 -std=c++17 -Xcompiler -Wall,-Wextra
+CUDA_ARCH ?= sm_80
+NVCCFLAGS += -arch=$(CUDA_ARCH)
 CUDA_HOME ?= /usr/local/cuda
 CU_SOURCES := $(wildcard kernels/*.cu)
 CU_OBJS := $(CU_SOURCES:.cu=.o)
