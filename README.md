@@ -236,7 +236,8 @@ Los tres ejes de la matriz son configurables (los defaults reproducen la
 matriz original del enunciado):
 
 - `--gpu-n-values LISTA` — valores de `N` separados por coma (default
-  `256,512,1024,2000`).
+  `256,512,1024,2000,50000`; el beneficio real de multi-GPU, issue #75, recien
+  se nota desde N>=50000, donde el kernel O(N^2) domina sobre la transferencia PCIe).
 - `--gpu-block-sizes LISTA` — valores de `blockDim.x` separados por coma
   (default `64,128,256,512,1024`).
 - `--gpu-variants LISTA` — variantes de kernel separadas por coma (default

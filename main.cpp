@@ -126,7 +126,7 @@ int main(int argc, char* argv[]) {
                       << "  --benchmark-gpu        Matriz GPU kernel-only/end-to-end x blockDim.x (requiere build CUDA).\n"
                       << "                         Ignora --bodies/--steps; usa --gpu-n-values/--gpu-block-sizes/--gpu-variants.\n"
                       << "  --gpu-n-values LISTA   Valores de N para --benchmark-gpu, separados por coma\n"
-                      << "                         (default: 256,512,1024,2000).\n"
+                      << "                         (default: 256,512,1024,2000,50000).\n"
                       << "  --gpu-block-sizes LISTA  Valores de blockDim.x para --benchmark-gpu, separados por coma\n"
                       << "                         (default: 64,128,256,512,1024).\n"
                       << "  --gpu-variants LISTA   Variantes de kernel para --benchmark-gpu, separadas por coma\n"
