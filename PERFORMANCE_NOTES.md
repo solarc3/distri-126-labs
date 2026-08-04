@@ -178,6 +178,30 @@ Entre 5M y 10M:
 
 Al duplicar `N`, el tiempo crece aproximadamente 4x. Eso es coherente con el costo `O(N^2)` del calculo directo de N-cuerpos: duplicar cuerpos multiplica por cuatro la cantidad de interacciones.
 
+## Multi-GPU (issue #75)
+
+`computeAccelerationsGpu`/`calculateEnergyGpu` reparten el trabajo entre todas
+las GPUs que reporte `cudaGetDeviceCount()` en runtime (nunca hardcodeado),
+via descomposicion por particula de salida: cada device calcula un slice
+`[i_begin, i_begin+i_count)` de aceleraciones pero necesita `x/y/mass`
+completos para el loop interno en `j`. `NBodySimulator::getGpuDeviceCount()` /
+`setGpuDeviceLimit(n)` permiten consultar/forzar cuantos devices usar (util
+para benchmarking o para acotar en AWS Batch con GPUs parcialmente
+asignadas).
+
+Con N chico (ver la matriz `--benchmark-gpu` de mas arriba, N<=2000) el
+end-to-end esta dominado por transferencia PCIe, asi que multi-GPU no aporta
+speedup real ahi -- incluso puede ser mas lento por la replicacion de
+`x/y/mass` en cada device. El punto donde el kernel `O(N^2)` empieza a
+dominar es aproximadamente N>=50.000; el sweep de `--benchmark-gpu` incluye
+un punto en N=50000 para dejarlo preparado, pero **no se pudo medir el
+speedup real de multi-GPU en esta maquina**: solo hay una GPU fisica
+disponible (RTX 3060 via `nvidia-smi`) y ademas no tiene el CUDA Toolkit
+(`nvcc`) instalado, por lo que ni siquiera se pudo compilar/correr la ruta
+GPU aqui. Para medir el beneficio real hay que correr `--benchmark-gpu` (con
+N ampliado a 100k-1M+) en una instancia AWS con >1 GPU (ej. `g4dn.12xlarge`,
+`g5.12xlarge`) o en el nodo GPU del cluster DIINF si tiene varias GPUs.
+
 ## Comandos utiles
 
 Compilacion para la VM objetivo:

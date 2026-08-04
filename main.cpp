@@ -137,7 +137,15 @@ int main(int argc, char* argv[]) {
                   << "NOTA: variant=1 (shared memory) todavia ejecuta el kernel basico por dentro "
                      "hasta que se integre el kernel shared (issue #20); los tiempos se actualizaran cuando eso ocurra.\n\n";
 
-        const std::vector<int> gpu_n_values = {256, 512, 1024, 2000};
+        // El costo end-to-end en N chico esta dominado por transferencia PCIe,
+        // no por computo (ver PERFORMANCE_NOTES.md); el beneficio real de
+        // multi-GPU (issue #75) solo se observa desde N>=50000 aprox, donde el
+        // kernel O(N^2) empieza a dominar. Se agrega 50000 al sweep para dejarlo
+        // preparado, pero compareCpuGpu() sigue corriendo la version CPU O(N^2)
+        // como referencia -- en una maquina sin GPU real (como esta) o con pocos
+        // threads, ese punto puede tardar bastante. N mayores (100000+) quedan
+        // para correrse directamente en una instancia multi-GPU de AWS.
+        const std::vector<int> gpu_n_values = {256, 512, 1024, 2000, 50000};
         const std::vector<int> gpu_variants = {0, 1};
         const std::vector<int> gpu_block_sizes = {64, 128, 256, 512, 1024};
         const int cpu_gpu_block_size = 256;
