@@ -14,6 +14,23 @@
 #include "MetricsCalculator.h"
 #include "Visualizer.h"
 
+namespace {
+std::vector<int> parse_int_list(const std::string& value) {
+    std::vector<int> result;
+    size_t start = 0;
+    while (start < value.size()) {
+        size_t comma = value.find(',', start);
+        std::string token = value.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+        if (!token.empty()) {
+            result.push_back(std::stoi(token));
+        }
+        if (comma == std::string::npos) break;
+        start = comma + 1;
+    }
+    return result;
+}
+}  // namespace
+
 int main(int argc, char* argv[]) {
     double G = 1.0;
     double epsilon = 0.1;
@@ -25,6 +42,12 @@ int main(int argc, char* argv[]) {
     int extra_repetitions = 3;
     std::vector<int> thread_counts = {2, 4, 8, 16};
     int variant_threads = 4;
+    // El costo end-to-end en N chico esta dominado por transferencia PCIe, no por
+    // computo (ver PERFORMANCE_NOTES.md); el beneficio real de multi-GPU (issue #75)
+    // solo se observa desde N>=50000 aprox, donde el kernel O(N^2) empieza a dominar.
+    std::vector<int> gpu_n_values = {256, 512, 1024, 2000, 50000};
+    std::vector<int> gpu_block_sizes = {64, 128, 256, 512, 1024};
+    std::vector<int> gpu_variants = {0, 1};
 
     unsigned int seed = 42;
     bool run_benchmark = false;
@@ -53,6 +76,12 @@ int main(int argc, char* argv[]) {
             run_benchmark = true;
         } else if (arg == "--benchmark-gpu") {
             run_benchmark_gpu = true;
+        } else if (arg == "--gpu-n-values") {
+            gpu_n_values = parse_int_list(require_value(arg));
+        } else if (arg == "--gpu-block-sizes") {
+            gpu_block_sizes = parse_int_list(require_value(arg));
+        } else if (arg == "--gpu-variants") {
+            gpu_variants = parse_int_list(require_value(arg));
         } else if (arg == "--bodies" || arg == "-n") {
             num_particles = std::stoi(require_value(arg));
         } else if (arg == "--steps") {
@@ -72,18 +101,7 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--variant-threads") {
             variant_threads = std::stoi(require_value(arg));
         } else if (arg == "--threads") {
-            thread_counts.clear();
-            std::string value = require_value(arg);
-            size_t start = 0;
-            while (start < value.size()) {
-                size_t comma = value.find(',', start);
-                std::string token = value.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
-                if (!token.empty()) {
-                    thread_counts.push_back(std::stoi(token));
-                }
-                if (comma == std::string::npos) break;
-                start = comma + 1;
-            }
+            thread_counts = parse_int_list(require_value(arg));
         } else if (arg == "--skip-serial") {
             skip_serial = true;
         } else if (arg == "--serial-seconds") {
@@ -106,7 +124,13 @@ int main(int argc, char* argv[]) {
                       << "  --serial-seconds X     Tiempo serial pre-calculado para speedup\n"
                       << "  --force-mode M         Calculo de fuerzas disponible: soa (default: soa)\n"
                       << "  --benchmark-gpu        Matriz GPU kernel-only/end-to-end x blockDim.x (requiere build CUDA).\n"
-                      << "                         Usa N fijos {256,512,1024,2000}: ignora --bodies/--steps.\n";
+                      << "                         Ignora --bodies/--steps; usa --gpu-n-values/--gpu-block-sizes/--gpu-variants.\n"
+                      << "  --gpu-n-values LISTA   Valores de N para --benchmark-gpu, separados por coma\n"
+                      << "                         (default: 256,512,1024,2000,50000).\n"
+                      << "  --gpu-block-sizes LISTA  Valores de blockDim.x para --benchmark-gpu, separados por coma\n"
+                      << "                         (default: 64,128,256,512,1024).\n"
+                      << "  --gpu-variants LISTA   Variantes de kernel para --benchmark-gpu, separadas por coma\n"
+                      << "                         (0=basica, 1=shared memory; default: 0,1).\n";
             return 0;
         } else {
             seed = static_cast<unsigned int>(std::stoul(arg));
@@ -117,6 +141,12 @@ int main(int argc, char* argv[]) {
         extra_repetitions <= 0 || thread_counts.empty() || variant_threads <= 0 ||
         dt <= 0.0 || epsilon <= 0.0) {
         std::cerr << "Error: parametros invalidos. Use --help para ver opciones." << std::endl;
+        return 1;
+    }
+    if (run_benchmark_gpu &&
+        (gpu_n_values.empty() || gpu_block_sizes.empty() || gpu_variants.empty())) {
+        std::cerr << "Error: --gpu-n-values/--gpu-block-sizes/--gpu-variants no pueden quedar vacios. "
+                     "Use --help para ver opciones." << std::endl;
         return 1;
     }
     if (force_mode != "soa") {
@@ -134,20 +164,11 @@ int main(int argc, char* argv[]) {
 #else
         std::cout << "--- Modo Benchmark GPU (matriz N x variante x blockDim.x, seccion 8.2 del enunciado) ---\n"
                   << "Repeticiones por punto: " << repetitions << " | semilla: " << seed << "\n"
+                  << "N: " << gpu_n_values.size() << " valores | variantes: " << gpu_variants.size()
+                  << " | blockDim.x: " << gpu_block_sizes.size() << " valores\n"
                   << "NOTA: variant=1 (shared memory) todavia ejecuta el kernel basico por dentro "
                      "hasta que se integre el kernel shared (issue #20); los tiempos se actualizaran cuando eso ocurra.\n\n";
 
-        // El costo end-to-end en N chico esta dominado por transferencia PCIe,
-        // no por computo (ver PERFORMANCE_NOTES.md); el beneficio real de
-        // multi-GPU (issue #75) solo se observa desde N>=50000 aprox, donde el
-        // kernel O(N^2) empieza a dominar. Se agrega 50000 al sweep para dejarlo
-        // preparado, pero compareCpuGpu() sigue corriendo la version CPU O(N^2)
-        // como referencia -- en una maquina sin GPU real (como esta) o con pocos
-        // threads, ese punto puede tardar bastante. N mayores (100000+) quedan
-        // para correrse directamente en una instancia multi-GPU de AWS.
-        const std::vector<int> gpu_n_values = {256, 512, 1024, 2000, 50000};
-        const std::vector<int> gpu_variants = {0, 1};
-        const std::vector<int> gpu_block_sizes = {64, 128, 256, 512, 1024};
         const int cpu_gpu_block_size = 256;
 
         try {

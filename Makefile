@@ -2,6 +2,10 @@ CXX ?= g++
 
 # On the c7a.48xlarge build on the target host and keep -march=native.
 # That lets GCC/Clang emit the exact Zen 4 ISA available there, including AVX-512.
+# For binaries that run on heterogeneous CPUs (Docker image for AWS Batch: g5 is
+# Ice Lake, xigpu is Zen 3 — no AVX-512, a Zen 4 native binary SIGILLs), build with
+# MARCH_FLAGS="-march=x86-64-v3". The Dockerfile does this for the baked-in binary;
+# run_batch.sh recompiles with -march=native on the actual target at container start.
 MARCH_FLAGS ?= -march=native
 OPT_FLAGS ?= -O3 -fno-math-errno
 EXTRA_CXXFLAGS ?=
@@ -16,8 +20,20 @@ TEST_CXXFLAGS = $(WARN_FLAGS) -Wno-unknown-pragmas $(OPT_FLAGS) $(OMP_FLAGS) $(S
 # objetos C++ solo cuando existen. Sin kernels, el build sigue siendo 100% CPU/g++.
 NVCC ?= nvcc
 NVCCFLAGS ?= -O3 -std=c++17 -Xcompiler -Wall,-Wextra
-CUDA_ARCH ?= sm_80
-NVCCFLAGS += -arch=$(CUDA_ARCH)
+# Fatbinary: SASS nativo para cada GPU destino (g4dn=T4 sm_75, p4d=A100 sm_80,
+# g5=A10G sm_86, H100=sm_90) + PTX de compute_90 para forward-compat vía JIT en
+# hardware más nuevo. Un solo -arch=sm_XX haría que la misma imagen falle o caiga
+# a JIT en las demás GPUs; sin ningún flag de arquitectura, nvcc emite PTX genérico
+# y todo ejecuta vía JIT, lo que distorsiona los benchmarks.
+# Para otro set de GPUs, override: make CUDA_GENCODE="-gencode arch=compute_90,code=sm_90"
+CUDA_GENCODE ?= -gencode arch=compute_75,code=sm_75 \
+                -gencode arch=compute_80,code=sm_80 \
+                -gencode arch=compute_86,code=sm_86 \
+                -gencode arch=compute_90,code=sm_90 \
+                -gencode arch=compute_90,code=compute_90
+# Los gencode van en la receta y no dentro de NVCCFLAGS: un override de NVCCFLAGS por
+# línea de comandos (make NVCCFLAGS="...") anula las asignaciones del Makefile y los
+# descartaría silenciosamente.
 CUDA_HOME ?= /usr/local/cuda
 CU_SOURCES := $(wildcard kernels/*.cu)
 CU_OBJS := $(CU_SOURCES:.cu=.o)
@@ -59,7 +75,7 @@ $(TARGET): $(OBJS)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 kernels/%.o: kernels/%.cu
-	$(NVCC) $(NVCCFLAGS) -c $< -o $@
+	$(NVCC) $(NVCCFLAGS) $(CUDA_GENCODE) -c $< -o $@
 
 cuda-info:
 	@command -v $(NVCC) >/dev/null 2>&1 && $(NVCC) --version || \
