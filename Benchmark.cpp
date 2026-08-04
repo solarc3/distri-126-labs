@@ -86,7 +86,23 @@ NBodySimulator makeGpuBenchSimulator(int n_bodies, unsigned int seed, double G, 
     return sim;
 }
 
-} 
+// La ruta GPU cae en silencio al calculo en CPU cuando el runtime CUDA no ve
+// devices (cudaGetDeviceCount() == 0: contenedor sin --gpus/NVIDIA_VISIBLE_DEVICES,
+// driver ausente, CUDA_VISIBLE_DEVICES vacio): uploadGpuBuffers() deja
+// deviceSoas_ vacio, computeAccelerationsGpuKernelOnly() retorna sin lanzar
+// nada y launchGpuKernel() ejecuta computeAccelerationsSoAImpl(). Sin esta
+// verificacion --benchmark-gpu termina con codigo 0 y escribe en
+// blockdim_study.dat tiempos de CPU (o ~0 s en kernel-only) rotulados como GPU.
+void requireVisibleGpu(const NBodySimulator& sim) {
+    if (sim.getGpuDeviceCount() > 0) {
+        return;
+    }
+    throw std::runtime_error(
+        "el runtime CUDA no reporta ninguna GPU visible (cudaGetDeviceCount() == 0); "
+        "la ruta GPU caeria en el fallback CPU y los tiempos medidos no serian de GPU");
+}
+
+}
 
 GpuBenchmarkResult Benchmark::benchmarkKernelOnly(int n_bodies, int variant, int block_size,
                                                   unsigned int seed, double G, double epsilon) {
@@ -96,6 +112,7 @@ GpuBenchmarkResult Benchmark::benchmarkKernelOnly(int n_bodies, int variant, int
     result.block_size = block_size;
 
     NBodySimulator sim = makeGpuBenchSimulator(n_bodies, seed, G, epsilon);
+    requireVisibleGpu(sim);
 
     sim.uploadGpuBuffers();
 
@@ -121,6 +138,7 @@ GpuBenchmarkResult Benchmark::benchmarkEndToEnd(int n_bodies, int variant, int b
     result.block_size = block_size;
 
     NBodySimulator sim = makeGpuBenchSimulator(n_bodies, seed, G, epsilon);
+    requireVisibleGpu(sim);
 
     std::vector<double> times(repetitions);
     for (int r = 0; r < repetitions; ++r) {
