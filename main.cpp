@@ -55,6 +55,7 @@ int main(int argc, char* argv[]) {
     bool run_benchmark_gpu = false;
     bool skip_serial = false;
     double serial_time_override = -1.0;
+    bool gpu_skip_cpu = false;
     std::string force_mode = "soa";
     if (const char* env_force_mode = std::getenv("NBODY_FORCE_MODE")) {
         force_mode = env_force_mode;
@@ -82,6 +83,8 @@ int main(int argc, char* argv[]) {
             gpu_block_sizes = parse_int_list(require_value(arg));
         } else if (arg == "--gpu-variants") {
             gpu_variants = parse_int_list(require_value(arg));
+        } else if (arg == "--skip-cpu") {
+            gpu_skip_cpu = true;
         } else if (arg == "--bodies" || arg == "-n") {
             num_particles = std::stoi(require_value(arg));
         } else if (arg == "--steps") {
@@ -130,7 +133,9 @@ int main(int argc, char* argv[]) {
                       << "  --gpu-block-sizes LISTA  Valores de blockDim.x para --benchmark-gpu, separados por coma\n"
                       << "                         (default: 64,128,256,512,1024).\n"
                       << "  --gpu-variants LISTA   Variantes de kernel para --benchmark-gpu, separadas por coma\n"
-                      << "                         (0=basica, 1=shared memory; default: 0,1).\n";
+                      << "                         (0=basica, 1=shared memory; default: 0,1).\n"
+                      << "  --skip-cpu             En --benchmark-gpu, omite Benchmark::compareCpuGpu (CPU O(N^2)) por\n"
+                      << "                         punto; util con N grandes donde la comparacion CPU seria muy lenta.\n";
             return 0;
         } else {
             seed = static_cast<unsigned int>(std::stoul(arg));
@@ -201,18 +206,23 @@ int main(int argc, char* argv[]) {
                         blockdim_file << n << "\t" << variant << "\t" << block_size << "\t"
                                       << kernel_only.mean_time << "\t" << kernel_only.std_dev << "\t"
                                       << end_to_end.mean_time << "\t" << end_to_end.std_dev << "\n";
+                        blockdim_file.flush();
 
                         std::cout << "  N=" << n << " variant=" << variant << " block=" << block_size
                                   << "  kernel-only=" << kernel_only.mean_time << "s"
                                   << "  end-to-end=" << end_to_end.mean_time << "s\n";
+                        std::cout.flush();
                     }
 
-                    CpuGpuComparison cmp =
-                        gpu_bench.compareCpuGpu(n, variant, cpu_gpu_block_size, seed, G, epsilon);
-                    gpu_results_file << n << "\t" << variant << "\t" << cpu_gpu_block_size << "\t"
-                                      << cmp.cpu_mean << "\t" << cmp.cpu_std << "\t"
-                                      << cmp.gpu_mean << "\t" << cmp.gpu_std << "\t"
-                                      << cmp.speedup << "\t" << cmp.speedup_err << "\n";
+                    if (!gpu_skip_cpu) {
+                        CpuGpuComparison cmp =
+                            gpu_bench.compareCpuGpu(n, variant, cpu_gpu_block_size, seed, G, epsilon);
+                        gpu_results_file << n << "\t" << variant << "\t" << cpu_gpu_block_size << "\t"
+                                          << cmp.cpu_mean << "\t" << cmp.cpu_std << "\t"
+                                          << cmp.gpu_mean << "\t" << cmp.gpu_std << "\t"
+                                          << cmp.speedup << "\t" << cmp.speedup_err << "\n";
+                        gpu_results_file.flush();
+                    }
                 }
             }
 
