@@ -228,6 +228,71 @@ TEST(GpuEquivalence, EnergyInvalidMethodThrows) {
 #endif
 
 // ---------------------------------------------------------------------------
+// Multi-GPU: getGpuDeviceCount/setGpuDeviceLimit.
+// En esta maquina de CI/dev solo hay 0 o 1 GPU fisica disponible, asi que
+// estos tests validan el caso de compatibilidad (equivalente a
+// i_begin=0, i_count=n de un solo device) y la API publica en si. La ruta
+// con N>=2 devices reales no se puede ejercitar sin hardware multi-GPU,
+// pero comparte el mismo codigo (splitParticleRange + loop por device) que
+// ya esta cubierto por los tests puros en test_gpu_device_split.cpp.
+// ---------------------------------------------------------------------------
+
+TEST(GpuMultiDevice, GetGpuDeviceCountNeverNegative) {
+    NBodySimulator sim(1.0, 0.1);
+    EXPECT_GE(sim.getGpuDeviceCount(), 0);
+}
+
+TEST(GpuMultiDevice, SetGpuDeviceLimitClampsCount) {
+    NBodySimulator sim(1.0, 0.1);
+    const int detected = sim.getGpuDeviceCount();
+
+    sim.setGpuDeviceLimit(0);
+    EXPECT_EQ(sim.getGpuDeviceCount(), 0);
+
+    sim.setGpuDeviceLimit(-1);
+    EXPECT_EQ(sim.getGpuDeviceCount(), detected);
+}
+
+TEST(GpuMultiDevice, DeviceLimitOneMatchesDefaultResult) {
+    SKIP_IF_NO_GPU();
+    // Fuerza explicitamente el camino de 1 solo device (equivalente al
+    // comportamiento previo a este feature: i_begin=0, i_count=n) y lo
+    // compara contra CPU, igual que los tests de equivalencia de arriba.
+    const int N = 129;
+    NBodySimulator sim(1.0, 0.1);
+    NBodySimulator cpuSim(1.0, 0.1);
+    sim.setGpuDeviceLimit(1);
+
+    sim.initializeRandom(N, 4242, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+    cpuSim.initializeRandom(N, 4242, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    sim.computeAccelerationsGpu(0, 128);
+    cpuSim.computeAccelerations();
+
+    const auto& gpu = sim.getParticles();
+    const auto& cpu = cpuSim.getParticles();
+    ASSERT_EQ(gpu.size(), cpu.size());
+    for (size_t i = 0; i < gpu.size(); ++i) {
+        EXPECT_TRUE(compareAccelerations(gpu[i], cpu[i])) << "i=" << i;
+    }
+}
+
+TEST(GpuMultiDevice, DeviceLimitOneEnergyMatchesCpu) {
+    SKIP_IF_NO_GPU();
+    const int N = 64;
+    NBodySimulator sim(1.0, 0.1);
+    sim.setGpuDeviceLimit(1);
+    sim.initializeRandom(N, 4343, -10.0, 10.0, -1.0, 1.0, 0.5, 2.0);
+
+    double gpuK = 0.0, gpuU = 0.0, cpuK = 0.0, cpuU = 0.0;
+    sim.calculateEnergyGpu(gpuK, gpuU, 0);
+    sim.calculateEnergy(cpuK, cpuU);
+
+    EXPECT_TRUE(compareFloat(cpuK, gpuK));
+    EXPECT_TRUE(compareFloat(cpuU, gpuU));
+}
+
+// ---------------------------------------------------------------------------
 // Tests analiticos: aceleracion contra valor conocido (sin seed random).
 // Requisito del laboratorio: "aceleracion entre 2-3 cuerpos CPU vs analitico".
 // ---------------------------------------------------------------------------

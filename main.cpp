@@ -42,7 +42,10 @@ int main(int argc, char* argv[]) {
     int extra_repetitions = 3;
     std::vector<int> thread_counts = {2, 4, 8, 16};
     int variant_threads = 4;
-    std::vector<int> gpu_n_values = {256, 512, 1024, 2000};
+    // El costo end-to-end en N chico esta dominado por transferencia PCIe, no por
+    // computo (ver PERFORMANCE_NOTES.md); el beneficio real de multi-GPU (issue #75)
+    // solo se observa desde N>=50000 aprox, donde el kernel O(N^2) empieza a dominar.
+    std::vector<int> gpu_n_values = {256, 512, 1024, 2000, 50000};
     std::vector<int> gpu_block_sizes = {64, 128, 256, 512, 1024};
     std::vector<int> gpu_variants = {0, 1};
 
