@@ -99,7 +99,7 @@ clean:
 	rm -f $(OBJS) $(CU_OBJS) $(TARGET) *.dat run_tests *.png vec_*.log
 
 TEST_TARGET = run_tests
-TEST_SOURCES = tests/test_physics.cpp tests/test_gpu_equivalence.cpp Particle.cpp NBodySimulator.cpp Integrator.cpp MetricsCalculator.cpp Visualizer.cpp
+TEST_SOURCES = tests/test_physics.cpp tests/test_gpu_equivalence.cpp tests/test_gpu_device_split.cpp Particle.cpp NBodySimulator.cpp Integrator.cpp MetricsCalculator.cpp Visualizer.cpp
 
 test: $(TEST_SOURCES) $(TEST_OBJS)
 	$(CXX) $(TEST_CXXFLAGS) -o $(TEST_TARGET) $(TEST_SOURCES) $(TEST_OBJS) $(LDFLAGS) -lgtest -lgtest_main -pthread
