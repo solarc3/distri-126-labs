@@ -45,9 +45,14 @@ jobs:
           # v2.0.0-lab2 -> tags `v2.0.0-lab2` y `latest`. El tag semver crudo se
           # conserva tal cual porque el sufijo `-lab2` lo hace un pre-release
           # para docker/metadata-action y `type=semver` lo descartaria.
+          # El tag `dev-<sha>` cubre workflow_dispatch: por ese camino el ref es
+          # refs/heads/<rama>, asi que `type=ref,event=tag` no emite nada y la
+          # condicion de `latest` es falsa. Sin el, `tags` queda vacio y
+          # build-push-action aborta al pushear sin ningun tag.
           tags: |
             type=ref,event=tag
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=dev-${{ github.sha }},enable=${{ github.event_name == 'workflow_dispatch' }}
 
       - name: build y push
         uses: docker/build-push-action@v6
