@@ -46,6 +46,22 @@ inline cudaError_t cudaMemcpy(void* dst, const void* src, size_t count, int kind
 inline cudaError_t cudaDeviceSynchronize() {
     return cudaSuccess;
 }
+
+inline cudaError_t cudaGetDevice(int* device) {
+    if (device) *device = 0;
+    return cudaSuccess;
+}
+
+inline cudaError_t cudaSetDevice(int) {
+    return cudaSuccess;
+}
+
+inline cudaError_t cudaGetDeviceCount(int* count) {
+    // Sin CUDA real no hay devices; el caller (NBodySimulator) debe caer a
+    // la ruta CPU cuando esto devuelve 0.
+    if (count) *count = 0;
+    return cudaSuccess;
+}
 #endif
 
 #ifndef CUDA_CHECK
@@ -61,14 +77,71 @@ inline cudaError_t cudaDeviceSynchronize() {
     } while (0)
 #endif
 
+// RAII helper: fija el device dado dentro del scope y restaura el device
+// previo al salir. Evita side-effects sobre el caller cuando CudaBuffer
+// necesita operar en un device distinto al que estaba activo (thread-local).
+class ScopedDevice {
+private:
+    int previous_device_{0};
+    bool restore_{false};
+
+public:
+    explicit ScopedDevice(int device_id) {
+        if (cudaGetDevice(&previous_device_) == cudaSuccess) {
+            if (previous_device_ != device_id) {
+                if (cudaSetDevice(device_id) == cudaSuccess) {
+                    restore_ = true;
+                }
+            }
+        }
+    }
+
+    ~ScopedDevice() {
+        if (restore_) {
+            cudaSetDevice(previous_device_);
+        }
+    }
+
+    ScopedDevice(const ScopedDevice&) = delete;
+    ScopedDevice& operator=(const ScopedDevice&) = delete;
+};
+
+// RAII helper: captura el device activo al construirse y lo restaura al
+// salir del scope, incluso si el cuerpo lanza una excepcion (CUDA_CHECK usa
+// throw). A diferencia de ScopedDevice, no fija ningun device en el
+// constructor -- solo garantiza que, pase lo que pase adentro (incluyendo
+// varios cudaSetDevice a distintos devices en un loop), el device del
+// caller queda restaurado al salir.
+class DeviceRestoreGuard {
+private:
+    int previous_device_{0};
+
+public:
+    DeviceRestoreGuard() {
+        cudaGetDevice(&previous_device_);
+    }
+
+    ~DeviceRestoreGuard() {
+        cudaSetDevice(previous_device_);
+    }
+
+    DeviceRestoreGuard(const DeviceRestoreGuard&) = delete;
+    DeviceRestoreGuard& operator=(const DeviceRestoreGuard&) = delete;
+};
+
 template <typename T>
 class CudaBuffer {
 private:
     T* d_ptr_{nullptr};
     size_t size_{0};
+    // Device en el que d_ptr_ fue alocado. cudaSetDevice es estado
+    // thread-local: sin esto, el destructor liberaria en el device que
+    // este activo al momento de destruirse, no en el que se aloco.
+    int device_id_{0};
 
     void freeGPU() noexcept {
         if (d_ptr_ != nullptr) {
+            ScopedDevice guard(device_id_);
             cudaFree(d_ptr_);
             d_ptr_ = nullptr;
             size_ = 0;
@@ -79,7 +152,17 @@ public:
     CudaBuffer() noexcept = default;
 
     explicit CudaBuffer(size_t count) : size_(count) {
+        cudaGetDevice(&device_id_);
         if (size_ > 0) {
+            CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_ptr_), size_ * sizeof(T)));
+        }
+    }
+
+    // Permite alocar explicitamente en un device distinto al activo,
+    // util para CudaDeviceSoA cuando maneja varios devices.
+    CudaBuffer(size_t count, int device_id) : size_(count), device_id_(device_id) {
+        if (size_ > 0) {
+            ScopedDevice guard(device_id_);
             CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_ptr_), size_ * sizeof(T)));
         }
     }
@@ -92,7 +175,7 @@ public:
     CudaBuffer& operator=(const CudaBuffer&) = delete;
 
     CudaBuffer(CudaBuffer&& other) noexcept
-        : d_ptr_(other.d_ptr_), size_(other.size_) {
+        : d_ptr_(other.d_ptr_), size_(other.size_), device_id_(other.device_id_) {
         other.d_ptr_ = nullptr;
         other.size_ = 0;
     }
@@ -102,6 +185,7 @@ public:
             freeGPU();
             d_ptr_ = other.d_ptr_;
             size_ = other.size_;
+            device_id_ = other.device_id_;
             other.d_ptr_ = nullptr;
             other.size_ = 0;
         }
@@ -121,6 +205,7 @@ public:
         if (d_ptr_ == nullptr) {
             throw std::logic_error("CudaBuffer::copyFromHost: buffer no asignado con count > 0");
         }
+        ScopedDevice guard(device_id_);
         CUDA_CHECK(cudaMemcpy(d_ptr_, host_ptr, count * sizeof(T), cudaMemcpyHostToDevice));
     }
 
@@ -133,6 +218,7 @@ public:
             throw std::out_of_range("CudaBuffer::copyToHost: la cantidad de elementos excede el tamaño del buffer");
         }
         if (count > 0 && host_ptr != nullptr && d_ptr_ != nullptr) {
+            ScopedDevice guard(device_id_);
             CUDA_CHECK(cudaMemcpy(host_ptr, d_ptr_, count * sizeof(T), cudaMemcpyDeviceToHost));
         }
     }
@@ -149,6 +235,7 @@ public:
 
     size_t size() const noexcept { return size_; }
     size_t bytes() const noexcept { return size_ * sizeof(T); }
+    int device() const noexcept { return device_id_; }
 
     explicit operator bool() const noexcept { return d_ptr_ != nullptr; }
 };
