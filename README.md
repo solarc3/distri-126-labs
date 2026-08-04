@@ -212,6 +212,29 @@ docker run --rm --gpus all nbody-cuda
 docker run --rm nbody-cuda make cuda-info
 ```
 
+**Imagen publicada (GHCR):** cada tag `v*` dispara el workflow
+`.github/workflows/docker-release.yml`, que construye este mismo `Dockerfile`,
+lo publica en GitHub Container Registry y valida la imagen ya publicada
+corriendo `make test` dentro de ella. Así el artefacto que queda en el registry
+es exactamente el que se probó, y no hace falta reconstruir para reproducir los
+benchmarks:
+
+```bash
+# tag del release (recomendado para reproducir: es inmutable)
+docker pull ghcr.io/solarc3/distri-l1-126:v2.0.0-lab2
+
+# tests CPU, no requiere GPU
+docker run --rm ghcr.io/solarc3/distri-l1-126:v2.0.0-lab2 make test
+
+# matriz GPU en un nodo con GPU NVIDIA + nvidia-container-toolkit
+docker run --rm --gpus all ghcr.io/solarc3/distri-l1-126:v2.0.0-lab2 \
+  ./nbody_sim --benchmark-gpu --repetitions 10
+```
+
+Tags publicados: el del release (p. ej. `v2.0.0-lab2`) y `latest`. Una ejecución
+manual del workflow (`workflow_dispatch`) publica solo `dev-<sha>`, no `latest`.
+Para el reporte usar siempre el tag del release: `latest` se mueve.
+
 **`make test` vs `make test-gpu`:** `make test` compila y corre siempre en
 modo CPU-only (no agrega `-DNBODY_ENABLE_CUDA_KERNELS`), a proposito: asi CI
 sigue en verde en runners sin GPU (nvcc puede estar presente sin que haya un
