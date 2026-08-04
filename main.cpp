@@ -174,8 +174,8 @@ int main(int argc, char* argv[]) {
                   << "Repeticiones por punto: " << repetitions << " | semilla: " << seed << "\n"
                   << "N: " << gpu_n_values.size() << " valores | variantes: " << gpu_variants.size()
                   << " | blockDim.x: " << gpu_block_sizes.size() << " valores\n"
-                  << "NOTA: variant=1 (shared memory) todavia ejecuta el kernel basico por dentro "
-                     "hasta que se integre el kernel shared (issue #20); los tiempos se actualizaran cuando eso ocurra.\n\n";
+                  << "variant=0: kernel basico | variant=1: tiling con memoria compartida "
+                     "(3 x blockDim.x x sizeof(double) bytes de smem por bloque).\n\n";
 
         const int cpu_gpu_block_size = 256;
 
