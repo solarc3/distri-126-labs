@@ -85,7 +85,9 @@ if ! make -j"$(nproc)" nbody_sim; then
 fi
 # Smoke test: un punto minimo de la matriz. Cubre las tres formas de fallar antes
 # de gastar la allocation: binario sin NBODY_ENABLE_CUDA_KERNELS (retorna 1 sin
-# medir), GPU no visible desde el contenedor, y kernel que no lanza.
+# medir), GPU no visible desde el contenedor (Benchmark.cpp aborta si
+# cudaGetDeviceCount() == 0, porque la ruta GPU cae en silencio a CPU), y kernel
+# que no lanza.
 # No se usa `strings ... | grep -q`: grep -q cierra el pipe al primer match y mata
 # a strings con SIGPIPE, que bajo `set -o pipefail` hace fallar la verificacion
 # aunque el binario este correcto.
