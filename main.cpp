@@ -53,6 +53,10 @@ int main(int argc, char* argv[]) {
     bool run_benchmark = false;
     bool run_benchmark_all = false;
     bool run_benchmark_gpu = false;
+    // compareCpuGpu() corre la referencia CPU O(N^2) `repetitions` veces por cada
+    // (N, variante). A N grande eso domina el wall time del job y es inutil si solo
+    // se necesita la matriz GPU (kernel-only vs end-to-end x blockDim.x).
+    bool gpu_skip_cpu = false;
     bool skip_serial = false;
     double serial_time_override = -1.0;
     std::string force_mode = "soa";
@@ -82,6 +86,8 @@ int main(int argc, char* argv[]) {
             gpu_block_sizes = parse_int_list(require_value(arg));
         } else if (arg == "--gpu-variants") {
             gpu_variants = parse_int_list(require_value(arg));
+        } else if (arg == "--gpu-skip-cpu") {
+            gpu_skip_cpu = true;
         } else if (arg == "--bodies" || arg == "-n") {
             num_particles = std::stoi(require_value(arg));
         } else if (arg == "--steps") {
@@ -129,6 +135,8 @@ int main(int argc, char* argv[]) {
                       << "                         (default: 256,512,1024,2000,50000).\n"
                       << "  --gpu-block-sizes LISTA  Valores de blockDim.x para --benchmark-gpu, separados por coma\n"
                       << "                         (default: 64,128,256,512,1024).\n"
+                      << "  --gpu-skip-cpu         Omite la comparacion CPU vs GPU (referencia CPU O(N^2)).\n"
+                      << "                         Solo mide la matriz GPU; 'gpu_benchmark_results.dat' queda vacio.\n"
                       << "  --gpu-variants LISTA   Variantes de kernel para --benchmark-gpu, separadas por coma\n"
                       << "                         (0=basica, 1=shared memory; default: 0,1).\n";
             return 0;
@@ -201,10 +209,18 @@ int main(int argc, char* argv[]) {
                         blockdim_file << n << "\t" << variant << "\t" << block_size << "\t"
                                       << kernel_only.mean_time << "\t" << kernel_only.std_dev << "\t"
                                       << end_to_end.mean_time << "\t" << end_to_end.std_dev << "\n";
+                        // Flush por fila: un punto de la matriz a N grande tarda minutos y el
+                        // job puede morir por timeout de Slurm/OOM antes de cerrar el ofstream.
+                        // Sin esto la ultima fila (o el archivo entero) se pierde en el buffer.
+                        blockdim_file.flush();
 
                         std::cout << "  N=" << n << " variant=" << variant << " block=" << block_size
                                   << "  kernel-only=" << kernel_only.mean_time << "s"
-                                  << "  end-to-end=" << end_to_end.mean_time << "s\n";
+                                  << "  end-to-end=" << end_to_end.mean_time << "s" << std::endl;
+                    }
+
+                    if (gpu_skip_cpu) {
+                        continue;
                     }
 
                     CpuGpuComparison cmp =
@@ -213,6 +229,11 @@ int main(int argc, char* argv[]) {
                                       << cmp.cpu_mean << "\t" << cmp.cpu_std << "\t"
                                       << cmp.gpu_mean << "\t" << cmp.gpu_std << "\t"
                                       << cmp.speedup << "\t" << cmp.speedup_err << "\n";
+                    gpu_results_file.flush();
+
+                    std::cout << "  [CPU vs GPU] N=" << n << " variant=" << variant
+                              << "  cpu=" << cmp.cpu_mean << "s  gpu=" << cmp.gpu_mean << "s"
+                              << "  speedup=" << cmp.speedup << "x" << std::endl;
                 }
             }
 

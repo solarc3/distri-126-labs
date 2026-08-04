@@ -21,6 +21,12 @@ def load_table(path):
     except ValueError as exc:
         print(f"Aviso: no se pudo leer '{path}' ({exc}).")
         return None
+    # Con --gpu-skip-cpu, 'gpu_benchmark_results.dat' queda con solo el header y
+    # loadtxt devuelve un array vacio; sin este guard el reshape produce shape (1,0)
+    # y los paneles revientan con IndexError al indexar columnas.
+    if data.size == 0:
+        print(f"Aviso: '{path}' no tiene filas de datos.")
+        return None
     if data.ndim == 1:
         data = data.reshape(1, -1)
     return data
