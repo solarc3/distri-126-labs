@@ -142,7 +142,10 @@ echo "=== Consolidando ==="
   grep -h -v '^#' "${OUT_DIR}"/blockdim_study_N*.dat 2>/dev/null | sort -n -k1,1 -k2,2 -k3,3
 } > "${OUT_DIR}/blockdim_study.dat"
 
-rows=$(grep -c -v '^#' "${OUT_DIR}/blockdim_study.dat" 2>/dev/null || echo 0)
+# `grep -c` imprime el conteo Y sale con 1 cuando no hubo coincidencias, asi que
+# un `|| echo 0` concatenaba un segundo "0" y rows quedaba como $'0\n0', con lo
+# que el `[[ -gt ]]` de abajo abortaba con "syntax error in expression".
+rows=$(grep -c -v '^#' "${OUT_DIR}/blockdim_study.dat" 2>/dev/null) || rows=0
 echo "blockdim_study.dat consolidado: ${rows} filas"
 
 if [[ "${rows}" -gt 0 ]]; then
