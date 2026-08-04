@@ -846,8 +846,7 @@ void NBodySimulator::uploadGpuBuffers() {
     const auto ranges = splitParticleRange(n, num_devices);
     deviceSoas_.resize(ranges.size());
 
-    int prev_device = 0;
-    cudaGetDevice(&prev_device);
+    DeviceRestoreGuard device_restore_guard;
     for (std::size_t d = 0; d < ranges.size(); ++d) {
         const int device_id = static_cast<int>(d);
         cudaSetDevice(device_id);
@@ -860,7 +859,6 @@ void NBodySimulator::uploadGpuBuffers() {
         deviceSoas_[d].copyFullInputsToDevice(soa_x.data(), soa_y.data(), soa_mass.data(),
                                               static_cast<std::size_t>(n));
     }
-    cudaSetDevice(prev_device);
 #endif
 }
 
@@ -871,8 +869,7 @@ void NBodySimulator::computeAccelerationsGpuKernelOnly(int variant, int block_si
     if (deviceSoas_.empty()) return;
     const double eps2 = epsilon * epsilon;
 
-    int prev_device = 0;
-    cudaGetDevice(&prev_device);
+    DeviceRestoreGuard device_restore_guard;
 
     // No se crean cudaStream_t explicitos: cada device tiene su PROPIO
     // stream por-defecto (son independientes entre si por device), asi que
@@ -897,8 +894,6 @@ void NBodySimulator::computeAccelerationsGpuKernelOnly(int variant, int block_si
         cudaSetDevice(dsoa.deviceId());
         dsoa.synchronize();
     }
-
-    cudaSetDevice(prev_device);
 #else
     (void)variant;
     (void)block_size;
@@ -911,20 +906,18 @@ void NBodySimulator::downloadGpuAccelerations() {
 #if defined(NBODY_ENABLE_CUDA_KERNELS)
     if (deviceSoas_.empty()) return;
 
-    int prev_device = 0;
-    cudaGetDevice(&prev_device);
-
-    for (auto& dsoa : deviceSoas_) {
-        const std::size_t i_begin = dsoa.iBegin();
-        const std::size_t count = dsoa.outSize();
-        if (count == 0) continue;
-        cudaSetDevice(dsoa.deviceId());
-        // Reensambla el resultado completo en host: cada slice se copia a
-        // su offset dentro de soa_ax/soa_ay.
-        dsoa.copyDeviceToHost(soa_ax.data() + i_begin, soa_ay.data() + i_begin, count);
+    {
+        DeviceRestoreGuard device_restore_guard;
+        for (auto& dsoa : deviceSoas_) {
+            const std::size_t i_begin = dsoa.iBegin();
+            const std::size_t count = dsoa.outSize();
+            if (count == 0) continue;
+            cudaSetDevice(dsoa.deviceId());
+            // Reensambla el resultado completo en host: cada slice se copia a
+            // su offset dentro de soa_ax/soa_ay.
+            dsoa.copyDeviceToHost(soa_ax.data() + i_begin, soa_ay.data() + i_begin, count);
+        }
     }
-
-    cudaSetDevice(prev_device);
     syncAccelerationsToParticles(n);
 #endif
 }
@@ -1020,8 +1013,7 @@ void NBodySimulator::calculateEnergyGpu(double& kinetic, double& potential, int 
 
     const auto ranges = splitParticleRange(n, num_devices);
 
-    int prev_device = 0;
-    cudaGetDevice(&prev_device);
+    DeviceRestoreGuard device_restore_guard;
 
     // Reduccion PARCIAL por device (cada uno suma solo su slice de i) +
     // reduccion final (suma simple) en host. Ver kernels/energy.cu para el
@@ -1054,8 +1046,6 @@ void NBodySimulator::calculateEnergyGpu(double& kinetic, double& potential, int 
         kinetic += partial_kinetic;
         potential += partial_potential;
     }
-
-    cudaSetDevice(prev_device);
 #else
     (void)method;
     calculateEnergy(kinetic, potential);

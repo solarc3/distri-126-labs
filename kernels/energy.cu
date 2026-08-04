@@ -168,6 +168,7 @@ void launchComputeEnergy(const double* d_x, const double* d_y,
         *h_potential = 0.0;
         return;
     }
+    assert(i_begin >= 0 && i_begin + i_count <= n);
 
     const int grid = (i_count + kBlockSize - 1) / kBlockSize;
 

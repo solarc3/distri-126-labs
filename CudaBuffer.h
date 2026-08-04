@@ -106,6 +106,29 @@ public:
     ScopedDevice& operator=(const ScopedDevice&) = delete;
 };
 
+// RAII helper: captura el device activo al construirse y lo restaura al
+// salir del scope, incluso si el cuerpo lanza una excepcion (CUDA_CHECK usa
+// throw). A diferencia de ScopedDevice, no fija ningun device en el
+// constructor -- solo garantiza que, pase lo que pase adentro (incluyendo
+// varios cudaSetDevice a distintos devices en un loop), el device del
+// caller queda restaurado al salir.
+class DeviceRestoreGuard {
+private:
+    int previous_device_{0};
+
+public:
+    DeviceRestoreGuard() {
+        cudaGetDevice(&previous_device_);
+    }
+
+    ~DeviceRestoreGuard() {
+        cudaSetDevice(previous_device_);
+    }
+
+    DeviceRestoreGuard(const DeviceRestoreGuard&) = delete;
+    DeviceRestoreGuard& operator=(const DeviceRestoreGuard&) = delete;
+};
+
 template <typename T>
 class CudaBuffer {
 private:
