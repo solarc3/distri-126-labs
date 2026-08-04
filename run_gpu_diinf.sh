@@ -65,7 +65,9 @@ nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv,nohea
   echo "REPETITIONS: ${REPETITIONS}"
   echo "MODO: GPU-only (--gpu-skip-cpu)"
   echo "CPU: $(lscpu 2>/dev/null | grep 'Model name' | cut -d: -f2 | xargs || echo N/A)"
-  echo "GPU: $(nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader 2>/dev/null | head -1 | xargs || echo N/A)"
+  # awk en vez de `head -1`: head cierra el pipe y mata a nvidia-smi con SIGPIPE,
+  # que bajo `set -o pipefail` haria fallar la sustitucion.
+  echo "GPU: $(nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader 2>/dev/null | awk 'NR==1' | xargs || echo N/A)"
   echo "NVCC: $(nvcc --version 2>/dev/null | tail -1 || echo 'NO DISPONIBLE')"
 } > "${OUT_DIR}/run_metadata_${RUN_TAG}.txt"
 cat "${OUT_DIR}/run_metadata_${RUN_TAG}.txt"
@@ -81,12 +83,20 @@ if ! make -j"$(nproc)" nbody_sim; then
   echo "ERROR: fallo la compilacion."
   exit 1
 fi
-# Verificacion dura: sin este define, --benchmark-gpu retorna 1 sin medir nada.
-if ! strings ./nbody_sim | grep -q "Modo Benchmark GPU"; then
-  echo "ERROR: el binario no quedo con soporte CUDA (NBODY_ENABLE_CUDA_KERNELS)."
+# Smoke test: un punto minimo de la matriz. Cubre las tres formas de fallar antes
+# de gastar la allocation: binario sin NBODY_ENABLE_CUDA_KERNELS (retorna 1 sin
+# medir), GPU no visible desde el contenedor, y kernel que no lanza.
+# No se usa `strings ... | grep -q`: grep -q cierra el pipe al primer match y mata
+# a strings con SIGPIPE, que bajo `set -o pipefail` hace fallar la verificacion
+# aunque el binario este correcto.
+echo "--- smoke test GPU ---"
+if ! ./nbody_sim --benchmark-gpu --repetitions 1 --gpu-n-values 256 \
+     --gpu-block-sizes 64 --gpu-variants 0 --gpu-skip-cpu; then
+  echo "ERROR: el smoke test GPU fallo. El binario no tiene kernels CUDA o no hay GPU visible."
   exit 1
 fi
-echo "Build OK (con kernels CUDA)."
+rm -f blockdim_study.dat gpu_benchmark_results.dat
+echo "Build OK (kernels CUDA ejecutandose en GPU real)."
 
 upload "${OUT_DIR}/run_metadata_${RUN_TAG}.txt"
 
