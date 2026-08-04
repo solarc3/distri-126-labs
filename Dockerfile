@@ -41,12 +41,16 @@ COPY --chown=appuser:appuser *.h *.cpp ./
 COPY --chown=appuser:appuser tests/       tests/
 COPY --chown=appuser:appuser kernels/     kernels/
 COPY --chown=appuser:appuser plot_performance.py ./
+COPY --chown=appuser:appuser plot_gpu_benchmarks.py ./
 COPY --chown=appuser:appuser run_batch.sh ./
 
 RUN chown -R appuser:appuser /home/appuser/app
 RUN chmod +x /home/appuser/app/run_batch.sh
 
 USER appuser
-RUN make clean && make
+# Build portable: la imagen corre en CPUs heterogéneas (AWS Batch g5/g4dn/p4d, xigpu),
+# así que el binario horneado no puede usar -march=native (SIGILL fuera del build host).
+# run_batch.sh recompila con -march=native al iniciar el contenedor.
+RUN make clean && make MARCH_FLAGS="-march=x86-64-v3"
 
 CMD ["./run_batch.sh"]

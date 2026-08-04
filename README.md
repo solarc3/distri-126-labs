@@ -225,19 +225,33 @@ esperado, no un bug.
 
 `./nbody_sim --benchmark-gpu` (o `make benchmark-gpu`) corre la matriz
 obligatoria de la sección 8.2 del enunciado: para cada combinacion de
-`N ∈ {256, 512, 1024, 2000}` × variante `{0=básica, 1=shared memory}` ×
-`blockDim.x ∈ {64, 128, 256, 512, 1024}`, mide con `Benchmark::benchmarkKernelOnly`
-(solo el kernel + `cudaDeviceSynchronize`, sin transferencias) y
-`Benchmark::benchmarkEndToEnd` (`computeAccelerationsGpu`, con transferencias
-H2D/D2H incluidas), usando `std::chrono::steady_clock` en host (no
-`cudaEvent_t`, como pide el enunciado) y `--repetitions` corridas por punto
-(default 10).
+`N` × variante `{0=básica, 1=shared memory}` × `blockDim.x`, mide con
+`Benchmark::benchmarkKernelOnly` (solo el kernel + `cudaDeviceSynchronize`,
+sin transferencias) y `Benchmark::benchmarkEndToEnd` (`computeAccelerationsGpu`,
+con transferencias H2D/D2H incluidas), usando `std::chrono::steady_clock` en
+host (no `cudaEvent_t`, como pide el enunciado) y `--repetitions` corridas por
+punto (default 10).
+
+Los tres ejes de la matriz son configurables (los defaults reproducen la
+matriz original del enunciado):
+
+- `--gpu-n-values LISTA` — valores de `N` separados por coma (default
+  `256,512,1024,2000`).
+- `--gpu-block-sizes LISTA` — valores de `blockDim.x` separados por coma
+  (default `64,128,256,512,1024`).
+- `--gpu-variants LISTA` — variantes de kernel separadas por coma (default
+  `0,1`).
+
+`--bodies`/`--steps` se ignoran en este modo: usa `--gpu-n-values` en su lugar.
 
 ```bash
 # En una maquina/nodo con GPU NVIDIA real:
 make benchmark-gpu ARGS="--repetitions 10"
 # o directamente:
 ./nbody_sim --benchmark-gpu --repetitions 10
+
+# Barrido de N mas grande (p. ej. en un nodo con GPU H100, mas memoria disponible):
+./nbody_sim --benchmark-gpu --repetitions 10 --gpu-n-values 1000,5000,10000,20000
 ```
 
 Salidas: `blockdim_study.dat` (kernel-only vs. end-to-end por punto de la
