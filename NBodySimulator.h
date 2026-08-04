@@ -6,6 +6,7 @@
 #include <vector>
 #include "AlignedAllocator.h"
 #include "CudaDeviceSoA.h"
+#include "GpuDeviceSplit.h"
 #include "NBodyConfig.h"
 #include "Particle.h"
 
@@ -22,8 +23,20 @@ private:
     AlignedDoubleVector soa_x, soa_y, soa_mass;
     AlignedDoubleVector soa_ax, soa_ay;
 
-    // GPU device buffers (RAII, soporta compilacion sin CUDA via fallback)
-    CudaDeviceSoA deviceSoa_;
+    // GPU device buffers (RAII, soporta compilacion sin CUDA via fallback).
+    // Una entrada por device fisico usado; en el caso single-GPU (o CUDA no
+    // disponible en runtime) queda con 0 o 1 elementos.
+    std::vector<CudaDeviceSoA> deviceSoas_;
+
+    // -1 = usar todos los devices que reporte cudaGetDeviceCount() en runtime.
+    // Permite limitar cuantos devices usar (util para benchmarking y para
+    // AWS Batch con GPUs parcialmente asignadas via NVIDIA_VISIBLE_DEVICES).
+    int gpu_device_limit_{-1};
+
+    // Cuenta devices disponibles en runtime (nunca hardcodeado), clamped por
+    // gpu_device_limit_. Retorna 0 si CUDA no esta disponible en compilacion
+    // o no hay devices visibles en runtime.
+    int resolveGpuDeviceCount() const;
 
     void launchGpuKernel(int n, int variant, int block_size);
 
@@ -56,6 +69,14 @@ public:
     void uploadGpuBuffers();
     void computeAccelerationsGpuKernelOnly(int variant, int block_size);
     void downloadGpuAccelerations();
+
+    // ---- Multi-GPU ----
+    // Cantidad de devices que se usarian ahora mismo (detectados en runtime,
+    // clamped por setGpuDeviceLimit). 0 si no hay CUDA/GPU disponible.
+    int getGpuDeviceCount() const;
+    // Limita cuantos devices usar (ej. para benchmarking con 1 GPU en una
+    // maquina con varias, o para acotar en AWS Batch). -1 = sin limite.
+    void setGpuDeviceLimit(int max_devices);
 
     // Paso completo Euler simplectico usando GPU para aceleraciones.
     // Orden fijo del enunciado:

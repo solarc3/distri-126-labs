@@ -781,13 +781,46 @@ void NBodySimulator::initializeRandom(int numParticles,
 }
 
 // ---------------------------------------------------------------------------
-// GPU: aceleraciones via CUDA
+// GPU: aceleraciones via CUDA (soporta multi-GPU, descomposicion por
+// particula de salida -- ver GpuDeviceSplit.h)
 // ---------------------------------------------------------------------------
+
+int NBodySimulator::resolveGpuDeviceCount() const {
+#if defined(NBODY_ENABLE_CUDA_KERNELS)
+    int count = 0;
+    // cudaGetDeviceCount() se consulta siempre en runtime: en AWS Batch con
+    // NVIDIA_VISIBLE_DEVICES limitado puede devolver menos devices que los
+    // fisicos del host, y nunca hay que asumir un numero fijo.
+    if (cudaGetDeviceCount(&count) != cudaSuccess) {
+        count = 0;
+    }
+    if (gpu_device_limit_ >= 0 && count > gpu_device_limit_) {
+        count = gpu_device_limit_;
+    }
+    return count;
+#else
+    return 0;
+#endif
+}
+
+int NBodySimulator::getGpuDeviceCount() const {
+    return resolveGpuDeviceCount();
+}
+
+void NBodySimulator::setGpuDeviceLimit(int max_devices) {
+    gpu_device_limit_ = max_devices;
+}
 
 void NBodySimulator::launchGpuKernel(int n, int variant, int block_size) {
     if (n == 0) return;
 
 #if defined(NBODY_ENABLE_CUDA_KERNELS)
+    if (resolveGpuDeviceCount() <= 0) {
+        // Sin GPU disponible en runtime (0 devices, ej. contenedor sin
+        // --gpus): fallback identico a la ruta CPU.
+        computeAccelerationsSoAImpl(0, 0, false);
+        return;
+    }
     uploadGpuBuffers();
     computeAccelerationsGpuKernelOnly(variant, block_size);
     downloadGpuAccelerations();
@@ -803,8 +836,31 @@ void NBodySimulator::uploadGpuBuffers() {
     if (n == 0) return;
 #if defined(NBODY_ENABLE_CUDA_KERNELS)
     syncSoAFromParticles(n);
-    deviceSoa_.allocate(n);
-    deviceSoa_.copyHostToDevice(soa_x.data(), soa_y.data(), soa_mass.data(), n);
+
+    const int num_devices = resolveGpuDeviceCount();
+    if (num_devices <= 0) {
+        deviceSoas_.clear();
+        return;
+    }
+
+    const auto ranges = splitParticleRange(n, num_devices);
+    deviceSoas_.resize(ranges.size());
+
+    int prev_device = 0;
+    cudaGetDevice(&prev_device);
+    for (std::size_t d = 0; d < ranges.size(); ++d) {
+        const int device_id = static_cast<int>(d);
+        cudaSetDevice(device_id);
+        deviceSoas_[d].setDeviceId(device_id);
+        deviceSoas_[d].allocateSlice(static_cast<std::size_t>(n),
+                                     static_cast<std::size_t>(ranges[d].i_begin),
+                                     static_cast<std::size_t>(ranges[d].i_count));
+        // x/y/mass se replican COMPLETOS en cada device (el loop interno en
+        // j del kernel recorre todo n); solo ax/ay quedan del tamano del slice.
+        deviceSoas_[d].copyFullInputsToDevice(soa_x.data(), soa_y.data(), soa_mass.data(),
+                                              static_cast<std::size_t>(n));
+    }
+    cudaSetDevice(prev_device);
 #endif
 }
 
@@ -812,12 +868,37 @@ void NBodySimulator::computeAccelerationsGpuKernelOnly(int variant, int block_si
     const int n = getNumParticles();
     if (n == 0) return;
 #if defined(NBODY_ENABLE_CUDA_KERNELS)
+    if (deviceSoas_.empty()) return;
     const double eps2 = epsilon * epsilon;
-    launchComputeAccelerations(
-        deviceSoa_.d_x.data(), deviceSoa_.d_y.data(), deviceSoa_.d_mass.data(),
-        deviceSoa_.d_ax.data(), deviceSoa_.d_ay.data(),
-        n, G, eps2, variant, block_size);
-    deviceSoa_.synchronize();
+
+    int prev_device = 0;
+    cudaGetDevice(&prev_device);
+
+    // No se crean cudaStream_t explicitos: cada device tiene su PROPIO
+    // stream por-defecto (son independientes entre si por device), asi que
+    // lanzar el kernel en cada device tras un cudaSetDevice ya alcanza para
+    // que corran en paralelo. El primer loop solo lanza (llamada async), el
+    // segundo sincroniza todos los devices antes de que el caller lea
+    // resultados -- eso es lo que pide el criterio de aceptacion. No se usa
+    // memoria pinned/cudaMemcpyAsync para las transferencias porque el
+    // codigo base ya usaba cudaMemcpy sincrono (sin overlap); agregarlo
+    // queda fuera de alcance de este cambio (ver PERFORMANCE_NOTES.md).
+    for (auto& dsoa : deviceSoas_) {
+        if (dsoa.outSize() == 0) continue;
+        cudaSetDevice(dsoa.deviceId());
+        launchComputeAccelerations(
+            dsoa.d_x.data(), dsoa.d_y.data(), dsoa.d_mass.data(),
+            dsoa.d_ax.data(), dsoa.d_ay.data(),
+            n, static_cast<int>(dsoa.iBegin()), static_cast<int>(dsoa.outSize()),
+            G, eps2, variant, block_size);
+    }
+    for (auto& dsoa : deviceSoas_) {
+        if (dsoa.outSize() == 0) continue;
+        cudaSetDevice(dsoa.deviceId());
+        dsoa.synchronize();
+    }
+
+    cudaSetDevice(prev_device);
 #else
     (void)variant;
     (void)block_size;
@@ -828,7 +909,22 @@ void NBodySimulator::downloadGpuAccelerations() {
     const int n = getNumParticles();
     if (n == 0) return;
 #if defined(NBODY_ENABLE_CUDA_KERNELS)
-    deviceSoa_.copyDeviceToHost(soa_ax.data(), soa_ay.data(), n);
+    if (deviceSoas_.empty()) return;
+
+    int prev_device = 0;
+    cudaGetDevice(&prev_device);
+
+    for (auto& dsoa : deviceSoas_) {
+        const std::size_t i_begin = dsoa.iBegin();
+        const std::size_t count = dsoa.outSize();
+        if (count == 0) continue;
+        cudaSetDevice(dsoa.deviceId());
+        // Reensambla el resultado completo en host: cada slice se copia a
+        // su offset dentro de soa_ax/soa_ay.
+        dsoa.copyDeviceToHost(soa_ax.data() + i_begin, soa_ay.data() + i_begin, count);
+    }
+
+    cudaSetDevice(prev_device);
     syncAccelerationsToParticles(n);
 #endif
 }
@@ -901,6 +997,14 @@ void NBodySimulator::calculateEnergyGpu(double& kinetic, double& potential, int 
     }
 
 #if defined(NBODY_ENABLE_CUDA_KERNELS)
+    const int num_devices = resolveGpuDeviceCount();
+    if (num_devices <= 0) {
+        // Sin GPU en runtime: fallback identico a la ruta CPU.
+        (void)method;
+        calculateEnergy(kinetic, potential);
+        return;
+    }
+
     syncSoAFromParticles(n);
 
     std::vector<double> host_vx(n), host_vy(n);
@@ -910,21 +1014,48 @@ void NBodySimulator::calculateEnergyGpu(double& kinetic, double& potential, int 
         host_vy[i] = p[i].vy;
     }
 
-    deviceSoa_.allocate(n);
-    deviceSoa_.copyHostToDevice(soa_x.data(), soa_y.data(), soa_mass.data(), n);
-
-    CudaBuffer<double> d_vx(n), d_vy(n);
-    d_vx.copyFromHost(host_vx.data(), n);
-    d_vy.copyFromHost(host_vy.data(), n);
-
-    double eps2 = epsilon * epsilon;
+    const double eps2 = epsilon * epsilon;
     kinetic = 0.0;
     potential = 0.0;
 
-    launchComputeEnergy(
-        deviceSoa_.d_x.data(), deviceSoa_.d_y.data(), deviceSoa_.d_mass.data(),
-        d_vx.data(), d_vy.data(),
-        n, G, eps2, &kinetic, &potential, method);
+    const auto ranges = splitParticleRange(n, num_devices);
+
+    int prev_device = 0;
+    cudaGetDevice(&prev_device);
+
+    // Reduccion PARCIAL por device (cada uno suma solo su slice de i) +
+    // reduccion final (suma simple) en host. Ver kernels/energy.cu para el
+    // argumento de por que la union de los slices cubre cada par (i,j) una
+    // sola vez.
+    for (std::size_t d = 0; d < ranges.size(); ++d) {
+        const GpuDeviceRange& range = ranges[d];
+        if (range.i_count == 0) continue;
+        cudaSetDevice(static_cast<int>(d));
+
+        CudaDeviceSoA dsoa;
+        dsoa.allocateSlice(static_cast<std::size_t>(n),
+                           static_cast<std::size_t>(range.i_begin),
+                           static_cast<std::size_t>(range.i_count));
+        dsoa.copyFullInputsToDevice(soa_x.data(), soa_y.data(), soa_mass.data(),
+                                    static_cast<std::size_t>(n));
+
+        CudaBuffer<double> d_vx(n), d_vy(n);
+        d_vx.copyFromHost(host_vx.data(), n);
+        d_vy.copyFromHost(host_vy.data(), n);
+
+        double partial_kinetic = 0.0;
+        double partial_potential = 0.0;
+        launchComputeEnergy(
+            dsoa.d_x.data(), dsoa.d_y.data(), dsoa.d_mass.data(),
+            d_vx.data(), d_vy.data(),
+            n, range.i_begin, range.i_count, G, eps2,
+            &partial_kinetic, &partial_potential, method);
+
+        kinetic += partial_kinetic;
+        potential += partial_potential;
+    }
+
+    cudaSetDevice(prev_device);
 #else
     (void)method;
     calculateEnergy(kinetic, potential);
