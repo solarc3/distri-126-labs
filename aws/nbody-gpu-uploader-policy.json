@@ -1,0 +1,29 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ListarSoloElPrefijoGpuDiinf",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::nbody-results-697449782620",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "gpu-diinf/*",
+            "gpu-diinf"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "EscribirResultadosGpu",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:AbortMultipartUpload"
+      ],
+      "Resource": "arn:aws:s3:::nbody-results-697449782620/gpu-diinf/*"
+    }
+  ]
+}
