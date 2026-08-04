@@ -42,9 +42,11 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # v2.0.0-lab2 -> tags `v2.0.0-lab2` y `latest`. El tag semver crudo se
-          # conserva tal cual porque el sufijo `-lab2` lo hace un pre-release
-          # para docker/metadata-action y `type=semver` lo descartaria.
+          # v2.0.0-lab2 -> tags `v2.0.0-lab2` y `latest`. Se usa `type=ref` y no
+          # `type=semver` para conservar el tag git literal: semver emitiria
+          # `2.0.0-lab2` (sin la `v`), y al ser pre-release omitiria ademas los
+          # patrones {{major}}.{{minor}} y el `latest` automatico. Aca `latest`
+          # se controla explicitamente abajo.
           # El tag `dev-<sha>` cubre workflow_dispatch: por ese camino el ref es
           # refs/heads/<rama>, asi que `type=ref,event=tag` no emite nada y la
           # condicion de `latest` es falsa. Sin el, `tags` queda vacio y
