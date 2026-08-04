@@ -46,6 +46,22 @@ inline cudaError_t cudaMemcpy(void* dst, const void* src, size_t count, int kind
 inline cudaError_t cudaDeviceSynchronize() {
     return cudaSuccess;
 }
+
+inline cudaError_t cudaGetDevice(int* device) {
+    if (device) *device = 0;
+    return cudaSuccess;
+}
+
+inline cudaError_t cudaSetDevice(int) {
+    return cudaSuccess;
+}
+
+inline cudaError_t cudaGetDeviceCount(int* count) {
+    // Sin CUDA real no hay devices; el caller (NBodySimulator) debe caer a
+    // la ruta CPU cuando esto devuelve 0.
+    if (count) *count = 0;
+    return cudaSuccess;
+}
 #endif
 
 #ifndef CUDA_CHECK
