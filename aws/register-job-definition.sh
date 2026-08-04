@@ -17,5 +17,23 @@ set -euo pipefail
 
 REGION="${REGION:-us-east-2}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+JOB_DEFINITION_FILE="${SCRIPT_DIR}/job-definition.json"
 
-echo "=== Registrando dist
+if [[ ! -f "${JOB_DEFINITION_FILE}" ]]; then
+  echo "Error: no se encontro ${JOB_DEFINITION_FILE}" >&2
+  exit 1
+fi
+
+if grep -q "REPLACE_WITH_JOB_ROLE\|REPLACE_WITH_EXECUTION_ROLE" "${JOB_DEFINITION_FILE}"; then
+  echo "Error: ${JOB_DEFINITION_FILE} todavia tiene placeholders (REPLACE_WITH_...)." >&2
+  echo "Reemplaza jobRoleArn/executionRoleArn por los roles IAM reales antes de registrar." >&2
+  exit 1
+fi
+
+echo "=== Registrando distri-jobdef en ${REGION} (desde ${JOB_DEFINITION_FILE}) ==="
+RESULT=$(aws batch register-job-definition \
+  --cli-input-json "file://${JOB_DEFINITION_FILE}" \
+  --region "${REGION}" \
+  --output json)
+
+echo "${RESULT}" | jq -r '"Registrado: " + .jobDefinitionName + ":" + (.revision | tostring) + " (" + .jobDefinitionArn + ")"'
