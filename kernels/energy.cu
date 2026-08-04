@@ -21,17 +21,20 @@ __device__ double atomicAddDouble(double* address, double val) {
 // ---------------------------------------------------------------------------
 // Kernel de energia cinetica con reduccion en shared memory
 // K = 1/2 * sum_i m_i * ||v_i||^2
+// Multi-GPU: solo suma sobre el slice [i_begin, i_begin+i_count); el host
+// suma las reducciones parciales de cada device.
 // ---------------------------------------------------------------------------
 __global__ void computeKineticEnergyKernel(const double* d_vx,
                                            const double* d_vy,
                                            const double* d_mass,
-                                           int n,
+                                           int i_begin, int i_count,
                                            double* d_result)
 {
     __shared__ double sdata[kBlockSize];
-    const int i = blockIdx.x * kBlockSize + threadIdx.x;
+    const int local = blockIdx.x * kBlockSize + threadIdx.x;
     double val = 0.0;
-    if (i < n) {
+    if (local < i_count) {
+        const int i = i_begin + local;
         val = 0.5 * d_mass[i] * (d_vx[i] * d_vx[i] + d_vy[i] * d_vy[i]);
     }
 
@@ -53,20 +56,25 @@ __global__ void computeKineticEnergyKernel(const double* d_vx,
 // ---------------------------------------------------------------------------
 // Kernel de energia potencial con reduccion en shared memory
 // U = -G * sum_i sum_{j > i} m_i * m_j / sqrt(r_ij^2 + eps2)
+// Multi-GPU: i recorre solo [i_begin, i_begin+i_count); j sigue recorriendo
+// (i, n) completo. Como cada par (i,j) con i<j se asigna al device dueño de
+// i, la union de los slices cubre cada par exactamente una vez.
 // ---------------------------------------------------------------------------
 __global__ void computePotentialEnergyKernel(const double* d_x,
                                              const double* d_y,
                                              const double* d_mass,
                                              int n,
+                                             int i_begin, int i_count,
                                              double G,
                                              double eps2,
                                              double* d_result)
 {
     __shared__ double sdata[kBlockSize];
-    const int i = blockIdx.x * kBlockSize + threadIdx.x;
+    const int local = blockIdx.x * kBlockSize + threadIdx.x;
     double val = 0.0;
 
-    if (i < n) {
+    if (local < i_count) {
+        const int i = i_begin + local;
         const double xi = d_x[i];
         const double yi = d_y[i];
         const double mi = d_mass[i];
@@ -103,11 +111,12 @@ __global__ void computePotentialEnergyKernel(const double* d_x,
 __global__ void computeKineticEnergyAtomicKernel(const double* d_vx,
                                                   const double* d_vy,
                                                   const double* d_mass,
-                                                  int n,
+                                                  int i_begin, int i_count,
                                                   double* d_result)
 {
-    const int i = blockIdx.x * kBlockSize + threadIdx.x;
-    if (i < n) {
+    const int local = blockIdx.x * kBlockSize + threadIdx.x;
+    if (local < i_count) {
+        const int i = i_begin + local;
         double val = 0.5 * d_mass[i] * (d_vx[i] * d_vx[i] + d_vy[i] * d_vy[i]);
         atomicAddDouble(d_result, val);
     }
@@ -117,12 +126,14 @@ __global__ void computePotentialEnergyAtomicKernel(const double* d_x,
                                                     const double* d_y,
                                                     const double* d_mass,
                                                     int n,
+                                                    int i_begin, int i_count,
                                                     double G,
                                                     double eps2,
                                                     double* d_result)
 {
-    const int i = blockIdx.x * kBlockSize + threadIdx.x;
-    if (i < n) {
+    const int local = blockIdx.x * kBlockSize + threadIdx.x;
+    if (local < i_count) {
+        const int i = i_begin + local;
         const double xi = d_x[i];
         const double yi = d_y[i];
         const double mi = d_mass[i];
@@ -139,22 +150,26 @@ __global__ void computePotentialEnergyAtomicKernel(const double* d_x,
 
 // ---------------------------------------------------------------------------
 // Launcher: asigna buffer de resultado en device, lanza kernels,
-// sincroniza y copia de vuelta al host.
+// sincroniza y copia de vuelta al host. Soporta rango [i_begin, i_count)
+// para multi-GPU: h_kinetic/h_potential reciben la reduccion PARCIAL de
+// este device unicamente (el caller debe sumar las reducciones de todos
+// los devices para obtener el total).
 // ---------------------------------------------------------------------------
 void launchComputeEnergy(const double* d_x, const double* d_y,
                           const double* d_mass,
                           const double* d_vx, const double* d_vy,
-                          int n, double G, double eps2,
+                          int n, int i_begin, int i_count,
+                          double G, double eps2,
                           double* h_kinetic, double* h_potential,
                           int method)
 {
-    if (n == 0) {
+    if (n == 0 || i_count == 0) {
         *h_kinetic = 0.0;
         *h_potential = 0.0;
         return;
     }
 
-    const int grid = (n + kBlockSize - 1) / kBlockSize;
+    const int grid = (i_count + kBlockSize - 1) / kBlockSize;
 
     double* d_K = nullptr;
     double* d_U = nullptr;
@@ -191,7 +206,7 @@ void launchComputeEnergy(const double* d_x, const double* d_y,
     if (method == 1) {
         // Variante con atomicAdd directo en memoria global
         computeKineticEnergyAtomicKernel<<<grid, kBlockSize>>>(
-            d_vx, d_vy, d_mass, n, d_K);
+            d_vx, d_vy, d_mass, i_begin, i_count, d_K);
         err = cudaGetLastError();
         if (err != cudaSuccess) {
             cudaFree(d_K); cudaFree(d_U);
@@ -201,7 +216,7 @@ void launchComputeEnergy(const double* d_x, const double* d_y,
         }
 
         computePotentialEnergyAtomicKernel<<<grid, kBlockSize>>>(
-            d_x, d_y, d_mass, n, G, eps2, d_U);
+            d_x, d_y, d_mass, n, i_begin, i_count, G, eps2, d_U);
         err = cudaGetLastError();
         if (err != cudaSuccess) {
             cudaFree(d_K); cudaFree(d_U);
@@ -212,7 +227,7 @@ void launchComputeEnergy(const double* d_x, const double* d_y,
     } else if (method == 0) {
         // metodo 0 (default): reduccion en shared memory
         computeKineticEnergyKernel<<<grid, kBlockSize>>>(
-            d_vx, d_vy, d_mass, n, d_K);
+            d_vx, d_vy, d_mass, i_begin, i_count, d_K);
         err = cudaGetLastError();
         if (err != cudaSuccess) {
             cudaFree(d_K); cudaFree(d_U);
@@ -222,7 +237,7 @@ void launchComputeEnergy(const double* d_x, const double* d_y,
         }
 
         computePotentialEnergyKernel<<<grid, kBlockSize>>>(
-            d_x, d_y, d_mass, n, G, eps2, d_U);
+            d_x, d_y, d_mass, n, i_begin, i_count, G, eps2, d_U);
         err = cudaGetLastError();
         if (err != cudaSuccess) {
             cudaFree(d_K); cudaFree(d_U);
@@ -262,4 +277,16 @@ void launchComputeEnergy(const double* d_x, const double* d_y,
 
     cudaFree(d_K);
     cudaFree(d_U);
+}
+
+// Overload de compatibilidad: 1 sola GPU, todo el rango [0, n).
+void launchComputeEnergy(const double* d_x, const double* d_y,
+                          const double* d_mass,
+                          const double* d_vx, const double* d_vy,
+                          int n, double G, double eps2,
+                          double* h_kinetic, double* h_potential,
+                          int method)
+{
+    launchComputeEnergy(d_x, d_y, d_mass, d_vx, d_vy,
+                        n, 0, n, G, eps2, h_kinetic, h_potential, method);
 }
