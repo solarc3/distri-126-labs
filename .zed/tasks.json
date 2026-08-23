@@ -1,0 +1,9 @@
+[
+  {
+    "label": "run main",
+    "command": "python3",
+    "args": ["main.py"],
+    "reveal": "always",
+    "use_new_terminal": false
+  }
+]
