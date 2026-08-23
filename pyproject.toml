@@ -1,0 +1,5 @@
+[tool.basedpyright]
+typeCheckingMode = "standard"
+reportMissingTypeStubs = false
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
