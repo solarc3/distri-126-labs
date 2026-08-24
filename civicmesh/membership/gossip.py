@@ -115,3 +115,11 @@ class Gossip:
                     objetivo,
                     error,
                 )
+
+        logger.info(
+            "[%s] heartbeat=%d vista=%d vivos=%d",
+            self._transport.peer_id,
+            self._heartbeat,
+            len(self._vista),
+            len(self._vista.vivos()),
+        )

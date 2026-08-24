@@ -3,11 +3,13 @@ import socket
 import threading
 import time
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
 from civicmesh.membership.gossip import Gossip
 from civicmesh.membership.view import MembershipView
+from civicmesh.node import ConfigError, Node, load_config
 from civicmesh.protocol import (
     ProtocolError,
     Sobre,
@@ -103,6 +105,20 @@ class MembershipViewTests(unittest.TestCase):
 
         vista.tick(111.0)
         self.assertEqual(vista.vivos(), [])
+
+    def test_seeds_se_deduplican_y_excluyen_al_peer_local(self) -> None:
+        vista = MembershipView(
+            "127.0.0.1:7001",
+            [
+                "127.0.0.1:7001",
+                "127.0.0.1:7002",
+                "127.0.0.1:7002",
+            ],
+            t_suspect=10,
+            t_dead=20,
+        )
+
+        self.assertEqual(vista.digest(), {"127.0.0.1:7002": 0})
 
 
 class GossipTests(unittest.TestCase):
@@ -331,6 +347,97 @@ class TransportTests(unittest.TestCase):
         self.assertIsNotNone(receptor._receiver_thread)
         assert receptor._receiver_thread is not None
         self.assertFalse(receptor._receiver_thread.is_alive())
+
+
+class NodeTests(unittest.TestCase):
+    def test_carga_peer_desde_yaml_compartido(self) -> None:
+        config_path = Path(__file__).parents[1] / "config.example.yaml"
+
+        config = load_config(config_path, "peer-1")
+
+        self.assertEqual(config.bind, ("0.0.0.0", 7001))
+        self.assertEqual(config.advertise, "127.0.0.1:7001")
+        self.assertEqual(config.seeds, ("127.0.0.1:7002",))
+        self.assertEqual(config.gossip_fanout, 1)
+        self.assertEqual(config.random_seed, 126)
+
+        with self.assertRaises(ConfigError):
+            load_config(config_path, "peer-inexistente")
+
+    def test_run_once_drena_antes_de_ejecutar_ticks(self) -> None:
+        eventos: list[tuple[str, float | int]] = []
+        transport = cast(
+            Transport,
+            SimpleNamespace(
+                dispatch_pending=lambda: eventos.append(("dispatch", 2)) or 2
+            ),
+        )
+        component = SimpleNamespace(
+            tick=lambda now: eventos.append(("tick", now)),
+        )
+        node = Node(
+            transport,
+            [component],
+            loop_interval=0.05,
+            clock=lambda: 42.0,
+        )
+
+        self.assertEqual(node.run_once(), 2)
+        self.assertEqual(eventos, [("dispatch", 2), ("tick", 42.0)])
+
+
+class IntegrationTests(unittest.TestCase):
+    def test_tres_nodos_descubren_la_malla(self) -> None:
+        puertos = reservar_puertos(3)
+        peer_ids = [f"127.0.0.1:{puerto}" for puerto in puertos]
+        vistas: list[MembershipView] = []
+        transports: list[Transport] = []
+        nodes: list[Node] = []
+
+        for indice, peer_id in enumerate(peer_ids):
+            seed = peer_ids[(indice + 1) % len(peer_ids)]
+            transport = Transport(peer_id, ("127.0.0.1", puertos[indice]))
+            vista = MembershipView(
+                peer_id,
+                [seed],
+                t_suspect=0.5,
+                t_dead=1.0,
+            )
+            gossip = Gossip(
+                vista,
+                transport,
+                random.Random(indice),
+                fanout=1,
+                interval=0.02,
+            )
+            transport.register_handler("gossip", gossip.handle)
+            nodes.append(Node(transport, [gossip], loop_interval=0.005))
+            transports.append(transport)
+            vistas.append(vista)
+
+        threads = [threading.Thread(target=node.run) for node in nodes]
+        try:
+            for thread in threads:
+                thread.start()
+
+            limite = time.monotonic() + 2.0
+            while time.monotonic() < limite:
+                if all(len(vista.digest()) == 2 for vista in vistas):
+                    break
+                time.sleep(0.01)
+
+            self.assertTrue(
+                all(len(vista.digest()) == 2 for vista in vistas),
+                [vista.digest() for vista in vistas],
+            )
+            self.assertTrue(all(vista.vivos() for vista in vistas))
+        finally:
+            for node in nodes:
+                node.stop()
+            for thread in threads:
+                thread.join(timeout=1.0)
+            for transport in transports:
+                transport.close()
 
 
 if __name__ == "__main__":
