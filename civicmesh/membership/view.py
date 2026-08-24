@@ -96,6 +96,14 @@ class MembershipView:
             elif hb > self._seen[pid]["heartbeat"]:
                 self._seen[pid]["heartbeat"] = hb
 
+    def vivos(self) -> list[str]:
+        """Devuelve una instantánea de los peers confirmados como vivos."""
+        return [
+            peer_id
+            for peer_id, estado in self._seen.items()
+            if estado["estado"] == "alive"
+        ]
+
     def tick(self, now: float) -> None:
         """Actualiza estados usando la edad de cada contacto directo."""
         # se actualiza edad de los peers mediante last_seen
