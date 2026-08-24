@@ -120,6 +120,24 @@ class MembershipViewTests(unittest.TestCase):
 
         self.assertEqual(vista.digest(), {"127.0.0.1:7002": 0})
 
+    def test_elegir_excluye_dead_pero_conserva_unknown_y_suspect(self) -> None:
+        vista = MembershipView(
+            "127.0.0.1:7001",
+            ["127.0.0.1:7002", "127.0.0.1:7003"],
+            t_suspect=10,
+            t_dead=20,
+        )
+        vista.contacto_directo("127.0.0.1:7002", 1, 100.0)
+        vista.contacto_directo("127.0.0.1:7004", 1, 110.0)
+        vista.tick(121.0)
+
+        elegidos = vista.elegir(random.Random(1), 10)
+
+        self.assertNotIn("127.0.0.1:7002", elegidos)
+        self.assertIn("127.0.0.1:7003", elegidos)
+        self.assertIn("127.0.0.1:7004", elegidos)
+        self.assertEqual(vista.vivos(), [])
+
 
 class GossipTests(unittest.TestCase):
     def test_constructor_valida_configuracion_e_identidad(self) -> None:

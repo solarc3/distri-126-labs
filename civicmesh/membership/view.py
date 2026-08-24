@@ -128,11 +128,21 @@ class MembershipView:
         return {pid: estado["heartbeat"] for pid, estado in self._seen.items()}
 
     def elegir(self, rng: RandomSource, f: int) -> list[str]:
-        """Elige hasta f destinos distintos de toda la vista local."""
+        """Elige peers no muertos para una ronda de membresia gossip.
+
+        Los peers unknown y suspect siguen siendo candidatos porque gossip debe
+        descubrirlos o confirmar su estado. El trafico pub/sub usa ``vivos()``
+        y, por lo tanto, solo considera contactos confirmados como alive.
+        """
         if f < 0:
             raise ValueError("el fanout no puede ser negativo")
-        cantidad = min(f, len(self._seen))
-        return rng.sample(list(self._seen), cantidad)
+        candidatos = [
+            peer_id
+            for peer_id, estado in self._seen.items()
+            if estado["estado"] != "dead"
+        ]
+        cantidad = min(f, len(candidatos))
+        return rng.sample(candidatos, cantidad)
 
     def __len__(self) -> int:
         return len(self._seen)
