@@ -30,6 +30,15 @@ def reservar_puertos(cantidad: int) -> list[int]:
             sock.close()
 
 
+class RecordingTransport:
+    def __init__(self, peer_id: str) -> None:
+        self.peer_id = peer_id
+        self.sent: list[tuple[str, Sobre]] = []
+
+    def send(self, peer_id: str, sobre: Sobre) -> None:
+        self.sent.append((peer_id, sobre))
+
+
 class ProtocolTests(unittest.TestCase):
     def test_round_trip(self) -> None:
         sobre: Sobre = {
@@ -83,7 +92,7 @@ class MembershipViewTests(unittest.TestCase):
     def test_vivos_solo_incluye_alive(self) -> None:
         vista = MembershipView(
             "127.0.0.1:7001",
-            "127.0.0.1:7002",
+            ["127.0.0.1:7002"],
             t_suspect=10,
             t_dead=20,
         )
@@ -100,7 +109,7 @@ class GossipTests(unittest.TestCase):
     def test_constructor_valida_configuracion_e_identidad(self) -> None:
         vista = MembershipView(
             "127.0.0.1:7001",
-            "127.0.0.1:7002",
+            ["127.0.0.1:7002"],
             t_suspect=10,
             t_dead=20,
         )
@@ -128,7 +137,7 @@ class GossipTests(unittest.TestCase):
     def test_handle_actualiza_contacto_y_digest(self) -> None:
         vista = MembershipView(
             "127.0.0.1:7001",
-            "127.0.0.1:7002",
+            ["127.0.0.1:7002"],
             t_suspect=10,
             t_dead=20,
         )
@@ -165,7 +174,7 @@ class GossipTests(unittest.TestCase):
     def test_handle_rechaza_payload_invalido_sin_mutar_vista(self) -> None:
         vista = MembershipView(
             "127.0.0.1:7001",
-            "127.0.0.1:7002",
+            ["127.0.0.1:7002"],
             t_suspect=10,
             t_dead=20,
         )
@@ -209,6 +218,40 @@ class GossipTests(unittest.TestCase):
                 with self.assertRaises(ProtocolError):
                     gossip.handle(sobre)
                 self.assertEqual(vista.digest(), {"127.0.0.1:7002": 0})
+
+    def test_tick_respeta_intervalo_e_incrementa_heartbeat(self) -> None:
+        vista = MembershipView(
+            "127.0.0.1:7001",
+            ["127.0.0.1:7002"],
+            t_suspect=10,
+            t_dead=20,
+        )
+        recording_transport = RecordingTransport("127.0.0.1:7001")
+        transport = cast(Transport, recording_transport)
+        gossip = Gossip(
+            vista,
+            transport,
+            random.Random(1),
+            interval=1.0,
+        )
+
+        gossip.tick(10.0)
+        self.assertEqual(len(recording_transport.sent), 1)
+        objetivo, primer_sobre = recording_transport.sent[0]
+        self.assertEqual(objetivo, "127.0.0.1:7002")
+        self.assertEqual(primer_sobre["tipo"], "gossip")
+        self.assertEqual(primer_sobre["from"], "127.0.0.1:7001")
+        self.assertEqual(primer_sobre["payload"]["heartbeat"], 1)
+
+        gossip.tick(10.5)
+        self.assertEqual(len(recording_transport.sent), 1)
+
+        gossip.tick(11.0)
+        self.assertEqual(len(recording_transport.sent), 2)
+        self.assertEqual(
+            recording_transport.sent[1][1]["payload"]["heartbeat"],
+            2,
+        )
 
 
 class TransportTests(unittest.TestCase):

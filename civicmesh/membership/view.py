@@ -1,4 +1,4 @@
-from collections.abc import ItemsView, Mapping, Sequence
+from collections.abc import Iterable, ItemsView, Mapping, Sequence
 from typing import Literal, Protocol, TypedDict
 
 # se agregan alias para tener un poquito de typechecking, asi si alguien escribe
@@ -36,7 +36,7 @@ class MembershipView:
     def __init__(
         self,
         yo: str,
-        semilla: str,
+        semillas: Iterable[str],
         t_suspect: float,
         t_dead: float,
     ) -> None:
@@ -45,10 +45,11 @@ class MembershipView:
         self.t_dead = t_dead
         # el diccionario se va a usar para almacenar los destinos posibles,
         # se debe poder ir actualizando
-        # la semilla es el unico peer que entra por argv; el resto entra por addr
-        # semilla
+        # Las seeds entregan los primeros destinos; el resto entra por gossip.
         self._seen: dict[str, PeerState] = {
-            semilla: {"last_seen": 0.0, "heartbeat": 0, "estado": "unknown"},
+            semilla: {"last_seen": 0.0, "heartbeat": 0, "estado": "unknown"}
+            for semilla in dict.fromkeys(semillas)
+            if semilla != yo
         }
 
     def _cambiar_estado(self, pid: str, nuevo: Estado) -> None:
