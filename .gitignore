@@ -1,5 +1,3 @@
-*.o
-nbody_sim
-run_tests
-*.dat
-*.png
+.venv/
+__pycache__/
+*.pyc

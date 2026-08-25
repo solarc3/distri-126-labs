@@ -15,9 +15,9 @@ safe-outputs:
     title-prefix: "[agent: auto-fix] "
 ---
 ## Tarea del Agente
-Revisa el estado de la documentación en el repositorio, específicamente el `README.md`, el `CHANGELOG.md` y los comentarios en los archivos de código C++ y cabeceras.
+Revisa el estado de la documentación en el repositorio, específicamente el `README.md`, el `CHANGELOG.md` y los docstrings en los archivos de Python (`civicmesh/`).
 
 ## Reglas de resolución
-- Si el arreglo es puramente mecánico (por ejemplo, un error tipográfico, una sección faltante en el README con una plantilla obvia, o un enlace roto), abre un Pull Request solucionándolo.
-- Si el arreglo requiere juicio técnico (por ejemplo, explicar el funcionamiento de un kernel con memoria compartida o decisiones de diseño), abre un Issue detallando lo que falta y comenta exactamente la frase: "Requiere intervención humana: <motivo>".
+- Si el arreglo es puramente mecánico (por ejemplo, un error tipográfico, una sección de instalación faltante en el README, o un formato erróneo en el CHANGELOG), abre un Pull Request solucionándolo.
+- Si el arreglo requiere juicio técnico (por ejemplo, justificar la política de fanout, explicar la arquitectura pub/sub, o detallar la convergencia), abre un Issue detallando lo que falta y comenta exactamente la frase: "Requiere intervención humana: <motivo>".
 - Bajo ninguna circunstancia fusiones los cambios directamente.

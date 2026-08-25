@@ -1,65 +1,66 @@
-<div align="center">
-  <h3>Universidad de Santiago de Chile (USACH)</h3>
-  <h4>Departamento de Ingeniería Informática (DIINF)</h4>
-  <h1>Laboratorio 2: Simulación N-Body (CUDA / C++)</h1>
-</div>
+# CivicMesh (Laboratorio 3)
 
-## Descripción
-Este repositorio contiene la implementación del Laboratorio 2, el cual aborda la simulación del problema de los N-cuerpos (N-Body Simulation). El proyecto incluye tanto una implementación secuencial en **CPU** como una versión altamente paralelizada en **GPU** utilizando **CUDA**, permitiendo evaluar la ganancia de rendimiento (speedup) y la escalabilidad del sistema.
+Un framework P2P de Publish/Subscribe para monitoreo ciudadano distribuido basado en Gossip.
 
-## Estructura del Proyecto
-El código está organizado de manera modular para separar la lógica física, la gestión de memoria y la aceleración en hardware:
+## Requisitos
+- Python >= 3.10
+- Docker y Docker Compose
+- Slurm (para despliegue en clúster)
 
-* `main.cpp`, `NBodySimulator.cpp`, `Integrator.cpp`: Lógica principal y orquestación de la simulación.
-* `kernels/`: Directorio principal de aceleración CUDA (`accelerations.cu`, `energy.cu`).
-* `CudaBuffer.h`, `CudaDeviceSoA.h`: Gestión de memoria y estructuras de datos (*Struct of Arrays*) optimizadas para GPU.
-* `tests/`: Batería de pruebas unitarias y de validación física (`test_physics.cpp`, `test_cuda_buffer.cpp`, `test_gpu_equivalence.cpp`).
-* `aws/`: Scripts de despliegue y definición de trabajos en Amazon Web Services (AWS Batch).
-* `plot_performance.py`, `plot_gpu_benchmarks.py`: Utilidades en Python para generar las gráficas de rendimiento.
-* Archivos `.slurm` y `.sh`: Scripts de ejecución para entornos clúster (SLURM) e instancias locales (`run_gpu_diinf.sh`, `run_cluster.slurm`, etc.).
+## Roles del Equipo
+| Nombre | Rol | Responsabilidad |
+|--------|-----|-----------------|
+|        | Líder de Capa de Red / Gossip | Membresía, descubrimiento, tolerancia a fallos |
+|        | Líder de Capa Pub/Sub | Tópicos, suscripciones, `should_forward`, fanout |
+|        | Líder de Datos | Ingesta Dominio B, generadores Poisson, percepción ciudadana |
+|        | Líder de Analítica | Métricas, convergencia, divergencia, frontend UI |
+| Fabian | Líder de CI/CD, Git y Agentes | Pipeline CI, Docker Compose, scripts Slurm, Agentes |
 
-## Compilación
-Asegúrese de contar con los siguientes requerimientos:
-* Compilador de C++ compatible con C++11/14 o superior.
-* NVIDIA CUDA Toolkit.
-* Make.
-* Python 3 y Matplotlib (opcional, para la visualización de resultados).
-
-Para compilar todo el proyecto, utilice el `Makefile` incluido en la raíz del repositorio:
+## Instalación
 ```bash
-make
-```
-*Nota: Si requiere limpiar los binarios u objetos intermedios, ejecute `make clean`.*
-
-## Ejecución
-### Entorno Local / Nodo Único
-Puede lanzar el simulador invocando directamente el binario generado:
-```bash
-./nbody_sim [argumentos/flags]
+# Entorno virtual recomendado
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+pip install pytest ruff
 ```
 
-### Entorno Clúster (SLURM)
-Para enviar los trabajos de GPU a la cola del clúster (por ejemplo, para los barridos de rendimiento), utilice los scripts provistos:
+## Pruebas y Linter
+Este repositorio utiliza `pytest` para pruebas y `ruff` para linting y formateo.
 ```bash
-sbatch run_cluster.slurm
-# o bien
-./run_gpu_diinf.sh
+make lint
+make test
 ```
 
-## Pruebas y Validación
-El sistema cuenta con un arnés de pruebas (*harness*) para garantizar que los cálculos de las fuerzas e interacciones en la GPU sean matemáticamente equivalentes a los calculados por la CPU, y que la energía del sistema se conserve adecuadamente.
-
-Puede ejecutar las pruebas construyendo los binarios de la carpeta `tests/`:
+## Ejecución Local (Docker Compose)
+Para levantar la malla con perfiles específicos, usar:
 ```bash
-# Revisar la regla específica en el Makefile si existe (ej. make test)
-./tests/test_gpu_equivalence
+# Dominio A (Delitos)
+make compose-delitos
+
+# Dominio B (Aire)
+make compose-aire
+```
+O directamente con Docker Compose:
+`docker compose --profile delitos up --build`
+
+## Ejecución en Clúster DIINF (Slurm)
+Los logs de corrida y métricas se guardarán bajo la convención `$CIVICMESH_RUNS/<run_id>/`.
+```bash
+make run-cluster
+# o
+sbatch scripts/slurm/run_cluster.slurm
 ```
 
-## Equipo y Roles
-| Miembro        | Rol / Contribucion                        |
-|----------------|-------------------------------------------|
-| **Benjamín Bustamante**   | Host/device y memoria R2 |
-| **Ignacio Solar**   | Kernels CUDA R1 |
-| **Fabián Lizama**   | Git, releases y agentes R4 |
-| **Benjamín Sepúlveda**   | Integración y validación R3 |
-| **Josepha Gaete**   | Calidad, CI y visualizacion R5 |
+## Interfaz de Analítica (Frontend)
+El frontend estará disponible en el puerto `8080`.
+Si corres en Slurm, debes hacer un túnel SSH hacia el host GPU que corre el frontend:
+```bash
+ssh -L 8080:localhost:8080 usuario@cluster -J usuario@gw
+```
+
+## Agentes de IA
+Este repositorio cuenta con 3 agentes:
+1. **Documentador (`agent_docs.yml`)**: Semanal, verifica estado de docs.
+2. **Revisor de Bugs (`agent_bugs.yml`)**: Diario, verifica correctitud de código Python, gossip y pub/sub.
+3. **Revisor de MR (`agent_pr.yml`)**: En cada PR, clasifica impacto, corre tras pasar CI verde. Nunca hace merge.

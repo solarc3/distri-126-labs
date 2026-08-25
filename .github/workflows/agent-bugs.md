@@ -11,13 +11,13 @@ permissions:
   pull-requests: read
 safe-outputs:
   create-issue:
-    labels: [bug, cuda, agent]
+    labels: [bug, gossip, pubsub, agent]
   create-pull-request:
     title-prefix: "[bugfix] "
 ---
 ## Tarea del Agente
-Analiza el código C++ y CUDA (`.cu`, `.cuh`, `.cpp`, `.h`) en busca de malas prácticas, regresiones o errores. Verifica exhaustivamente que todas las llamadas a la API de CUDA estén envueltas en macros de manejo de errores (como `CUDA_CHECK`) y detecta posibles desincronizaciones entre host y device.
+Analiza el código Python de `civicmesh/` y `tests/` en busca de malas prácticas, regresiones o errores. Verifica exhaustivamente la capa de membresía (gossip), el enrutamiento (pub/sub), las suscripciones, y el parseo de mensajes. Revisa también que la semilla del generador aleatorio se comporte determinísticamente en tests y repeticiones.
 
 ## Reglas de resolución
-- Si el fix es mecánico (por ejemplo, falta un `CUDA CHECK` o un test falla porque la tolerancia de coma flotante fue mal copiada), abre un Pull Request o Issue con el parche sugerido.
-- Si el problema detectado afecta la lógica de los kernels de aceleración, la API pública o el integrador Euler, abre un Issue y comenta exactamente: "Requiere intervención humana no modificar main directamente".
+- Si el fix es mecánico (por ejemplo, corrección de tipado en diccionarios de estado, o aserciones de tests unitarios erróneas sobre formato), abre un Pull Request o Issue con el parche sugerido.
+- Si el problema detectado afecta la lógica central de membresía (gossip), el protocolo pub/sub (el criterio `should_forward`), o la semántica del dominio (delitos/aire), abre un Issue y comenta exactamente: "requiere intervención humana".

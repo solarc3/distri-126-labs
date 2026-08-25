@@ -1,43 +1,64 @@
-name: Simulador N-Cuerpos CI
+name: CI/CD CivicMesh
 
 on:
-  push:
-    branches: [ "modeloYDatos", "main", "master" ]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: [ main ]
+  push:
+    branches: [ main ]
 
 jobs:
-  build-and-test:
+  lint:
     runs-on: ubuntu-latest
-
     steps:
-    - name: checkout codigo
-      uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          
+      - name: Install linter
+        run: pip install ruff
+        
+      - name: Run Ruff
+        run: ruff check .
 
-    - name: instalar dependencias 
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential libomp-dev libgtest-dev cmake
-        cd /usr/src/gtest
-        sudo cmake CMakeLists.txt
-        sudo make
-        sudo cp lib/*.a /usr/lib
-
-    - name: compilar lab
-      run: make
-
-    - name: pruebas unitarias e integracion
-      run: make test
-
-  docker-cuda-build:
+  test:
     runs-on: ubuntu-latest
-
+    needs: lint
     steps:
-    - name: checkout codigo
-      uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+          pip install pytest pytest-asyncio
+          
+      - name: Run Unit Tests
+        run: pytest -q tests/
 
-    - name: build imagen Docker (nvidia/cuda + nvcc)
-      run: docker build -t nbody-cuda:ci .
-
-    - name: compilar y correr tests CPU dentro del contenedor
-      run: docker run --rm nbody-cuda:ci make test
+  integration:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Integration Test (Docker Compose)
+        run: |
+          # Perfil: Delitos
+          docker compose --profile delitos up --build -d
+          sleep 5
+          docker compose --profile delitos logs
+          docker compose --profile delitos down
+          
+          # Perfil: Aire
+          docker compose --profile aire up --build -d
+          sleep 5
+          docker compose --profile aire logs
+          docker compose --profile aire down
