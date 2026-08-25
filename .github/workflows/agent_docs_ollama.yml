@@ -33,23 +33,32 @@ jobs:
           echo "Recopilando documentación..."
           cat README.md CHANGELOG.md 2>/dev/null | head -n 500 > docs_context.txt || echo "Documentos no encontrados" > docs_context.txt
           
-          PROMPT="Analiza estrictamente estos documentos (README/CHANGELOG):
+          JSON_PAYLOAD=$(jq -n --arg docs "$(cat docs_context.txt)" '{
+            model: "qwen2.5:0.5b", 
+            messages: [
+              {role: "system", content: "Analiza el README y CHANGELOG provistos. Eres un auditor estricto de documentación.\nSi notas que falta documentar cómo correr el clúster con Slurm, cómo levantar Docker Compose, o no se explica la arquitectura general (Gossip/PubSub), responde EXACTAMENTE comenzando con la palabra PELIGRO seguida de lo que falta.\nSi todos esos temas (Slurm, Docker, y descripción general) están presentes, responde EXACTAMENTE comenzando con la palabra SEGURO."},
+              {role: "user", content: $docs}
+            ],
+            stream: false, 
+            options: {temperature: 0.0}
+          }')
           
-          $(cat docs_context.txt)
+          RAW_RESP=$(curl -s -X POST http://localhost:11434/api/chat -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.message.content')
           
-          DEBES responder ÚNICAMENTE con UNA de estas dos opciones y NADA MÁS:
-          OPCIÓN 1: 'Requiere intervención humana: <escribe_aqui_el_motivo_en_1_oracion>' (Úsala si falta explicar la arquitectura pub/sub, faltan parámetros, falta Slurm o Docker).
-          OPCIÓN 2: 'La documentación parece estar completa y cumple los requisitos básicos.' (Úsala si ves instrucciones de Slurm, Docker y Frontend).
+          # Parser seguro en Bash
+          if [[ "$RAW_RESP" == *"PELIGRO"* ]]; then
+             CLEAN_REASON=$(echo "$RAW_RESP" | sed 's/PELIGRO//g' | xargs)
+             FINAL_TEXT="Requiere intervención humana: $CLEAN_REASON"
+          elif [[ "$RAW_RESP" == *"SEGURO"* ]]; then
+             FINAL_TEXT="La documentación parece estar completa y cumple los requisitos básicos (Slurm, Docker, framework descritos)."
+          else
+             FINAL_TEXT="Requiere intervención humana: No se pudo auditar la documentación correctamente por la IA."
+          fi
           
-          NO expliques reglas. NO inventes código. Sé directo."
-          
-          JSON_PAYLOAD=$(jq -n --arg p "$PROMPT" '{model: "qwen2.5:0.5b", prompt: $p, stream: false, options: {temperature: 0.0}}')
-          curl -s -X POST http://localhost:11434/api/generate -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.response' > ai_raw.txt
-          
-          echo -e "**[Agente Documentador]** Revisión de estado de documentación:\n\n$(cat ai_raw.txt)" > issue_body.txt
+          echo -e "**[Agente Documentador]** Revisión de estado de documentación:\n\n$FINAL_TEXT" > issue_body.txt
 
       - name: Create Issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh issue create --title "[IA] Revisión semanal del estado de la documentación" --body-file issue_body.txt --label "documentation" || echo "Fallo al crear issue. Asegúrate de que el token tiene permisos de escritura en issues."
+          gh issue create --title "[IA] Revisión semanal del estado de la documentación" --body-file issue_body.txt --label "documentation" || echo "Fallo al crear issue."

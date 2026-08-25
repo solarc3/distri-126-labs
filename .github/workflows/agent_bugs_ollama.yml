@@ -33,23 +33,34 @@ jobs:
           echo "Recopilando código..."
           cat civicmesh/protocol.py civicmesh/node.py 2>/dev/null | head -n 500 > code_context.txt || echo "Código no encontrado" > code_context.txt
           
-          PROMPT="Analiza este código de Python buscando bugs lógicos o problemas de concurrencia:
+          # Uso de API Chat + Parser en Bash
+          JSON_PAYLOAD=$(jq -n --arg code "$(cat code_context.txt)" '{
+            model: "qwen2.5:0.5b", 
+            messages: [
+              {role: "system", content: "Analiza el código Python de networking provisto. Eres un sistema de auditoría binaria.\nSi encuentras problemas de concurrencia, deadlocks, llamadas a sockets mal cerrados o errores lógicos en el ruteo pubsub/gossip, responde EXACTAMENTE comenzando con la palabra PELIGRO seguida del problema encontrado (1 oración).\nSi el código se ve estructuralmente bien o los problemas son puramente estéticos (nombres de variables, logs), responde EXACTAMENTE comenzando con la palabra SEGURO seguida de un mensaje corto de confirmación."},
+              {role: "user", content: $code}
+            ],
+            stream: false, 
+            options: {temperature: 0.0}
+          }')
           
-          $(cat code_context.txt)
+          RAW_RESP=$(curl -s -X POST http://localhost:11434/api/chat -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.message.content')
           
-          DEBES responder ÚNICAMENTE con UNA de estas dos frases y NADA MÁS:
-          OPCIÓN 1: 'Requiere intervención humana' (Úsala si encuentras problemas reales de sockets, deadlocks, fallas en protocol.py o node.py).
-          OPCIÓN 2: 'No se encontraron anomalías graves.' (Úsala si el código se ve bien o solo hay detalles menores).
+          # Parser seguro en Bash
+          if [[ "$RAW_RESP" == *"PELIGRO"* ]]; then
+             CLEAN_REASON=$(echo "$RAW_RESP" | sed 's/PELIGRO//g' | xargs)
+             FINAL_TEXT="Requiere intervención humana.\nSe han detectado posibles vulnerabilidades o fallos semánticos: $CLEAN_REASON"
+          elif [[ "$RAW_RESP" == *"SEGURO"* ]]; then
+             CLEAN_REASON=$(echo "$RAW_RESP" | sed 's/SEGURO//g' | xargs)
+             FINAL_TEXT="No se encontraron anomalías graves.\nAuditoría estática: $CLEAN_REASON"
+          else
+             FINAL_TEXT="Requiere intervención humana.\nEl modelo detectó ambigüedades y requiere revisión humana."
+          fi
           
-          Justifica tu elección en una sola oración. NO agregues introducciones ni des sugerencias de código."
-          
-          JSON_PAYLOAD=$(jq -n --arg p "$PROMPT" '{model: "qwen2.5:0.5b", prompt: $p, stream: false, options: {temperature: 0.0}}')
-          curl -s -X POST http://localhost:11434/api/generate -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.response' > ai_raw.txt
-          
-          echo -e "**[Agente Revisor de Bugs]** Informe de análisis de código base:\n\n$(cat ai_raw.txt)" > issue_body.txt
+          echo -e "**[Agente Revisor de Bugs]** Informe de análisis de código base:\n\n$FINAL_TEXT" > issue_body.txt
 
       - name: Create Issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh issue create --title "[IA] Informe diario de posibles vulnerabilidades o bugs lógicos" --body-file issue_body.txt --label "bug" || echo "Fallo al crear issue. Asegúrate de que el token tiene permisos de escritura en issues."
+          gh issue create --title "[IA] Informe diario de posibles vulnerabilidades o bugs lógicos" --body-file issue_body.txt --label "bug" || echo "Fallo al crear issue."
