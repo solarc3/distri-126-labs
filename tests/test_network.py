@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
+from unittest.mock import patch
 
 from civicmesh.membership.gossip import Gossip
 from civicmesh.membership.view import MembershipView
@@ -17,7 +18,7 @@ from civicmesh.protocol import (
     decodificar_sobre,
 )
 from civicmesh.pubsub import PubSub, SubscriptionManager, should_forward
-from civicmesh.transport import Transport
+from civicmesh.transport import Transport, resolve_endpoints
 
 
 def reservar_puertos(cantidad: int) -> list[int]:
@@ -49,7 +50,13 @@ class ProtocolTests(unittest.TestCase):
             "from": "127.0.0.1:7001",
             "payload": {
                 "heartbeat": 4,
-                "peers": {"127.0.0.1:7002": 3},
+                "topics": ["santiago"],
+                "peers": {
+                    "127.0.0.1:7002": {
+                        "heartbeat": 3,
+                        "topics": ["providencia"],
+                    }
+                },
             },
         }
 
@@ -101,7 +108,7 @@ class MembershipViewTests(unittest.TestCase):
         )
         self.assertEqual(vista.vivos(), [])
 
-        vista.contacto_directo("127.0.0.1:7002", 1, 100.0)
+        vista.contacto_directo("127.0.0.1:7002", 1, [], 100.0)
         self.assertEqual(vista.vivos(), ["127.0.0.1:7002"])
 
         vista.tick(111.0)
@@ -119,7 +126,10 @@ class MembershipViewTests(unittest.TestCase):
             t_dead=20,
         )
 
-        self.assertEqual(vista.digest(), {"127.0.0.1:7002": 0})
+        self.assertEqual(
+            vista.digest(),
+            {"127.0.0.1:7002": {"heartbeat": 0, "topics": []}},
+        )
 
     def test_elegir_excluye_dead_pero_conserva_unknown_y_suspect(self) -> None:
         vista = MembershipView(
@@ -128,8 +138,8 @@ class MembershipViewTests(unittest.TestCase):
             t_suspect=10,
             t_dead=20,
         )
-        vista.contacto_directo("127.0.0.1:7002", 1, 100.0)
-        vista.contacto_directo("127.0.0.1:7004", 1, 110.0)
+        vista.contacto_directo("127.0.0.1:7002", 1, [], 100.0)
+        vista.contacto_directo("127.0.0.1:7004", 1, [], 110.0)
         vista.tick(121.0)
 
         elegidos = vista.elegir(random.Random(1), 10)
@@ -138,6 +148,67 @@ class MembershipViewTests(unittest.TestCase):
         self.assertIn("127.0.0.1:7003", elegidos)
         self.assertIn("127.0.0.1:7004", elegidos)
         self.assertEqual(vista.vivos(), [])
+
+    def test_topics_se_aceptan_solo_con_heartbeat_mayor(self) -> None:
+        vista = MembershipView(
+            "127.0.0.1:7001",
+            ["127.0.0.1:7002"],
+            t_suspect=10,
+            t_dead=20,
+        )
+        vista.contacto_directo(
+            "127.0.0.1:7002",
+            2,
+            ["santiago", "santiago", ""],
+            100.0,
+        )
+
+        vista.contacto_directo(
+            "127.0.0.1:7002",
+            2,
+            ["descartado"],
+            200.0,
+        )
+        vista.merge_digest(
+            {
+                "127.0.0.1:7002": {
+                    "heartbeat": 1,
+                    "topics": ["tambien-descartado"],
+                }
+            }
+        )
+        self.assertEqual(
+            vista.topics_de("127.0.0.1:7002"),
+            ["santiago", "santiago", ""],
+        )
+        self.assertEqual(dict(vista.items())["127.0.0.1:7002"]["last_seen"], 100.0)
+
+        vista.merge_digest(
+            {
+                "127.0.0.1:7002": {
+                    "heartbeat": 3,
+                    "topics": ["providencia"],
+                }
+            }
+        )
+        self.assertEqual(vista.topics_de("127.0.0.1:7002"), ["providencia"])
+
+    def test_topics_propios_y_consultas_devuelven_copias(self) -> None:
+        vista = MembershipView(
+            "127.0.0.1:7001",
+            [],
+            t_suspect=10,
+            t_dead=20,
+        )
+        topics = ["santiago"]
+        vista.set_topics(topics)
+        topics.append("providencia")
+
+        consulta = vista.topics_de("127.0.0.1:7001")
+        consulta.append("nunoa")
+
+        self.assertEqual(vista.topics_de("127.0.0.1:7001"), ["santiago"])
+        self.assertEqual(vista.topics_de("127.0.0.1:7999"), [])
 
 
 class GossipTests(unittest.TestCase):
@@ -191,7 +262,13 @@ class GossipTests(unittest.TestCase):
             "from": "127.0.0.1:7002",
             "payload": {
                 "heartbeat": 4,
-                "peers": {"127.0.0.1:7003": 2},
+                "topics": ["santiago"],
+                "peers": {
+                    "127.0.0.1:7003": {
+                        "heartbeat": 2,
+                        "topics": ["providencia"],
+                    }
+                },
             },
         }
 
@@ -201,8 +278,14 @@ class GossipTests(unittest.TestCase):
         self.assertEqual(
             vista.digest(),
             {
-                "127.0.0.1:7002": 4,
-                "127.0.0.1:7003": 2,
+                "127.0.0.1:7002": {
+                    "heartbeat": 4,
+                    "topics": ["santiago"],
+                },
+                "127.0.0.1:7003": {
+                    "heartbeat": 2,
+                    "topics": ["providencia"],
+                },
             },
         )
 
@@ -224,7 +307,7 @@ class GossipTests(unittest.TestCase):
                 {
                     "tipo": "gossip",
                     "from": "127.0.0.1:7002",
-                    "payload": {"heartbeat": True, "peers": {}},
+                    "payload": {"heartbeat": True, "topics": [], "peers": {}},
                 },
             ),
             cast(
@@ -234,7 +317,39 @@ class GossipTests(unittest.TestCase):
                     "from": "127.0.0.1:7002",
                     "payload": {
                         "heartbeat": 1,
-                        "peers": {"sin-puerto": 2},
+                        "topics": [],
+                        "peers": {
+                            "sin-puerto": {"heartbeat": 2, "topics": []}
+                        },
+                    },
+                },
+            ),
+            cast(
+                Sobre,
+                {
+                    "tipo": "gossip",
+                    "from": "127.0.0.1:7002",
+                    "payload": {
+                        "heartbeat": 1,
+                        "topics": [1],
+                        "peers": {},
+                    },
+                },
+            ),
+            cast(
+                Sobre,
+                {
+                    "tipo": "gossip",
+                    "from": "127.0.0.1:7002",
+                    "payload": {
+                        "heartbeat": 1,
+                        "topics": [],
+                        "peers": {
+                            "127.0.0.1:7003": {
+                                "heartbeat": 2,
+                                "topics": "santiago",
+                            }
+                        },
                     },
                 },
             ),
@@ -243,7 +358,7 @@ class GossipTests(unittest.TestCase):
                 {
                     "tipo": "pubsub",
                     "from": "127.0.0.1:7002",
-                    "payload": {"heartbeat": 1, "peers": {}},
+                    "payload": {"heartbeat": 1, "topics": [], "peers": {}},
                 },
             ),
         ]
@@ -252,7 +367,10 @@ class GossipTests(unittest.TestCase):
             with self.subTest(sobre=sobre):
                 with self.assertRaises(ProtocolError):
                     gossip.handle(sobre)
-                self.assertEqual(vista.digest(), {"127.0.0.1:7002": 0})
+                self.assertEqual(
+                    vista.digest(),
+                    {"127.0.0.1:7002": {"heartbeat": 0, "topics": []}},
+                )
 
     def test_tick_respeta_intervalo_e_incrementa_heartbeat(self) -> None:
         vista = MembershipView(
@@ -269,6 +387,7 @@ class GossipTests(unittest.TestCase):
             random.Random(1),
             interval=1.0,
         )
+        vista.set_topics(["santiago"])
 
         gossip.tick(10.0)
         self.assertEqual(len(recording_transport.sent), 1)
@@ -277,6 +396,7 @@ class GossipTests(unittest.TestCase):
         self.assertEqual(primer_sobre["tipo"], "gossip")
         self.assertEqual(primer_sobre["from"], "127.0.0.1:7001")
         self.assertEqual(primer_sobre["payload"]["heartbeat"], 1)
+        self.assertEqual(primer_sobre["payload"]["topics"], ["santiago"])
 
         gossip.tick(10.5)
         self.assertEqual(len(recording_transport.sent), 1)
@@ -367,6 +487,47 @@ class TransportTests(unittest.TestCase):
         assert receptor._receiver_thread is not None
         self.assertFalse(receptor._receiver_thread.is_alive())
 
+    def test_cachea_resolucion_del_remitente_por_peer_id(self) -> None:
+        puerto_emisor, puerto_receptor = reservar_puertos(2)
+        peer_emisor = f"127.0.0.1:{puerto_emisor}"
+        peer_receptor = f"127.0.0.1:{puerto_receptor}"
+        emisor = Transport(peer_emisor, ("127.0.0.1", puerto_emisor))
+        receptor = Transport(peer_receptor, ("127.0.0.1", puerto_receptor))
+        self.addCleanup(emisor.close)
+        self.addCleanup(receptor.close)
+
+        recibidos: list[int] = []
+        receptor.register_handler(
+            "gossip",
+            lambda sobre: recibidos.append(
+                cast(int, sobre["payload"]["heartbeat"])
+            ),
+        )
+
+        with patch(
+            "civicmesh.transport.resolve_endpoints",
+            wraps=resolve_endpoints,
+        ) as resolver:
+            receptor.start()
+            for heartbeat in (1, 2):
+                emisor.send(
+                    peer_receptor,
+                    {
+                        "tipo": "gossip",
+                        "from": peer_emisor,
+                        "payload": {"heartbeat": heartbeat},
+                    },
+                )
+
+            limite = time.monotonic() + 1.0
+            while time.monotonic() < limite and len(recibidos) < 2:
+                receptor.dispatch_pending()
+                if len(recibidos) < 2:
+                    time.sleep(0.01)
+
+            self.assertEqual(recibidos, [1, 2])
+            resolver.assert_called_once_with(peer_emisor)
+
 
 class NodeTests(unittest.TestCase):
     def test_carga_peer_desde_yaml_compartido(self) -> None:
@@ -422,6 +583,7 @@ class IntegrationTests(unittest.TestCase):
                 t_suspect=0.5,
                 t_dead=1.0,
             )
+            vista.set_topics([f"topic-{indice}"])
             gossip = Gossip(
                 vista,
                 transport,
@@ -441,7 +603,14 @@ class IntegrationTests(unittest.TestCase):
 
             limite = time.monotonic() + 2.0
             while time.monotonic() < limite:
-                if all(len(vista.digest()) == 2 for vista in vistas):
+                if all(
+                    len(vista.digest()) == 2
+                    and all(
+                        vista.topics_de(pid) == [f"topic-{indice}"]
+                        for indice, pid in enumerate(peer_ids)
+                    )
+                    for vista in vistas
+                ):
                     break
                 time.sleep(0.01)
 
@@ -450,6 +619,69 @@ class IntegrationTests(unittest.TestCase):
                 [vista.digest() for vista in vistas],
             )
             self.assertTrue(all(vista.vivos() for vista in vistas))
+            for vista in vistas:
+                for indice, pid in enumerate(peer_ids):
+                    self.assertEqual(vista.topics_de(pid), [f"topic-{indice}"])
+        finally:
+            for node in nodes:
+                node.stop()
+            for thread in threads:
+                thread.join(timeout=1.0)
+
+    def test_dos_peers_dejan_de_verse_al_bloquearse_mutuamente(self) -> None:
+        puertos = reservar_puertos(2)
+        peer_ids = [f"127.0.0.1:{puerto}" for puerto in puertos]
+        vistas: list[MembershipView] = []
+        transports: list[Transport] = []
+        nodes: list[Node] = []
+
+        for indice, peer_id in enumerate(peer_ids):
+            otro_peer = peer_ids[1 - indice]
+            transport = Transport(peer_id, ("127.0.0.1", puertos[indice]))
+            vista = MembershipView(
+                peer_id,
+                [otro_peer],
+                t_suspect=0.1,
+                t_dead=0.2,
+            )
+            gossip = Gossip(
+                vista,
+                transport,
+                random.Random(indice),
+                interval=0.02,
+            )
+            transport.register_handler("gossip", gossip.handle)
+            nodes.append(Node(transport, [gossip], loop_interval=0.005))
+            transports.append(transport)
+            vistas.append(vista)
+
+        threads = [threading.Thread(target=node.run) for node in nodes]
+        try:
+            for thread in threads:
+                thread.start()
+
+            limite = time.monotonic() + 1.0
+            while time.monotonic() < limite and not all(
+                vista.vivos() for vista in vistas
+            ):
+                time.sleep(0.01)
+            self.assertTrue(all(vista.vivos() for vista in vistas))
+
+            transports[0].blocked_peers.add(peer_ids[1])
+            transports[1].blocked_peers.add(peer_ids[0])
+
+            limite = time.monotonic() + 1.0
+            while time.monotonic() < limite and not all(
+                dict(vista.items())[peer_ids[1 - indice]]["estado"] == "dead"
+                for indice, vista in enumerate(vistas)
+            ):
+                time.sleep(0.01)
+            self.assertTrue(
+                all(
+                    dict(vista.items())[peer_ids[1 - indice]]["estado"] == "dead"
+                    for indice, vista in enumerate(vistas)
+                )
+            )
         finally:
             for node in nodes:
                 node.stop()
@@ -465,7 +697,7 @@ class PubSubTests(unittest.TestCase):
             t_suspect=10,
             t_dead=20,
         )
-        vista.contacto_directo("127.0.0.1:7002", 1, 100.0)
+        vista.contacto_directo("127.0.0.1:7002", 1, [], 100.0)
 
         # TTL = 0 (expirado)
         msg_expirado = {
@@ -496,7 +728,7 @@ class PubSubTests(unittest.TestCase):
             t_suspect=10,
             t_dead=20,
         )
-        vista.contacto_directo("127.0.0.1:7002", 1, 100.0)
+        vista.contacto_directo("127.0.0.1:7002", 1, [], 100.0)
 
         msg_prioridad_invalida = {
             "id": "msg-2",
@@ -531,7 +763,7 @@ class PubSubTests(unittest.TestCase):
         self.assertFalse(should_forward(msg, "santiago", vista))
 
         # Peer vivo pero sin interés registrado en suscripciones -> False
-        vista.contacto_directo("127.0.0.1:7002", 1, 100.0)
+        vista.contacto_directo("127.0.0.1:7002", 1, [], 100.0)
         subs = SubscriptionManager()
         subs.registrar_suscripcion_peer("127.0.0.1:7002", ["las_condes"])
         self.assertFalse(should_forward(msg, "santiago", vista, subs))
@@ -597,9 +829,9 @@ class PubSubTests(unittest.TestCase):
             t_suspect=10,
             t_dead=20,
         )
-        vista.contacto_directo("127.0.0.1:7002", 1, 100.0)
-        vista.contacto_directo("127.0.0.1:7003", 1, 100.0)
-        vista.contacto_directo("127.0.0.1:7004", 1, 100.0)
+        vista.contacto_directo("127.0.0.1:7002", 1, [], 100.0)
+        vista.contacto_directo("127.0.0.1:7003", 1, [], 100.0)
+        vista.contacto_directo("127.0.0.1:7004", 1, [], 100.0)
 
         rec = RecordingTransport("127.0.0.1:7001")
         transport = cast(Transport, rec)

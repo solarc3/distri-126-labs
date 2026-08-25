@@ -6,9 +6,13 @@ from typing import Literal, Protocol, TypedDict
 Estado = Literal["alive", "suspect", "dead", "unknown"]
 
 
-class PeerState(TypedDict):
-    last_seen: float
+class DigestState(TypedDict):
     heartbeat: int
+    topics: list[str]
+
+
+class PeerState(DigestState):
+    last_seen: float
     estado: Estado
 
 
@@ -43,11 +47,17 @@ class MembershipView:
         self.yo = yo
         self.t_suspect = t_suspect
         self.t_dead = t_dead
+        self._topics: list[str] = []
         # el diccionario se va a usar para almacenar los destinos posibles,
         # se debe poder ir actualizando
         # Las seeds entregan los primeros destinos; el resto entra por gossip.
         self._seen: dict[str, PeerState] = {
-            semilla: {"last_seen": 0.0, "heartbeat": 0, "estado": "unknown"}
+            semilla: {
+                "last_seen": 0.0,
+                "heartbeat": 0,
+                "topics": [],
+                "estado": "unknown",
+            }
             for semilla in dict.fromkeys(semillas)
             if semilla != yo
         }
@@ -62,20 +72,33 @@ class MembershipView:
             )
         self._seen[pid]["estado"] = nuevo
 
-    def contacto_directo(self, pid: str, hb: int, now: float) -> None:
+    def contacto_directo(
+        self,
+        pid: str,
+        hb: int,
+        topics: list[str],
+        now: float,
+    ) -> None:
         """Registra un mensaje recibido directamente desde un peer."""
-        if pid not in self._seen:
+        conocido = self._seen.get(pid)
+        if conocido is not None and hb <= conocido["heartbeat"]:
+            return
+
+        if conocido is None:
             self._seen[pid] = {
                 "last_seen": 0.0,
                 "heartbeat": hb,
+                "topics": list(topics),
                 "estado": "unknown",
             }
+        else:
+            conocido["heartbeat"] = hb
+            conocido["topics"] = list(topics)
 
         self._cambiar_estado(pid, "alive")
         self._seen[pid]["last_seen"] = now
-        self._seen[pid]["heartbeat"] = hb
 
-    def merge_digest(self, digest: Mapping[str, int]) -> None:
+    def merge_digest(self, digest: Mapping[str, DigestState]) -> None:
         """Incorpora informacion de segunda mano sin confirmar presencia."""
         # recibo info y necesito confirmar
         # se agrega el estado del heartbeat, pq sino se actualiza solo cuando uno
@@ -85,17 +108,35 @@ class MembershipView:
         # decidir que este muerto
         # TODO: si hay un nodo muerto que en mi lista de vecinos TODOS digan
         # muerto, se elimina(?
-        for pid, hb in digest.items():
+        for pid, recibido in digest.items():
             if pid == self.yo:
                 continue
-            if pid not in self._seen:
+            hb = recibido["heartbeat"]
+            conocido = self._seen.get(pid)
+            if conocido is None:
                 self._seen[pid] = {
                     "last_seen": 0.0,
                     "heartbeat": hb,
+                    "topics": list(recibido["topics"]),
                     "estado": "unknown",
                 }
-            elif hb > self._seen[pid]["heartbeat"]:
-                self._seen[pid]["heartbeat"] = hb
+            elif hb > conocido["heartbeat"]:
+                conocido["heartbeat"] = hb
+                conocido["topics"] = list(recibido["topics"])
+
+    def set_topics(self, topics: list[str]) -> None:
+        """Reemplaza la lista opaca de topics anunciada por el peer local."""
+        self._topics = list(topics)
+
+    def topics_de(self, pid: str) -> list[str]:
+        """Devuelve una copia de los topics conocidos para un peer."""
+        if pid == self.yo:
+            return list(self._topics)
+
+        conocido = self._seen.get(pid)
+        if conocido is None:
+            return []
+        return list(conocido["topics"])
 
     def vivos(self) -> list[str]:
         """Devuelve una instantánea de los peers confirmados como vivos."""
@@ -123,9 +164,15 @@ class MembershipView:
                 nuevo = "dead"
             self._cambiar_estado(pid, nuevo)
 
-    def digest(self) -> dict[str, int]:
-        """Devuelve los heartbeats que se propagan en el mensaje de gossip."""
-        return {pid: estado["heartbeat"] for pid, estado in self._seen.items()}
+    def digest(self) -> dict[str, DigestState]:
+        """Devuelve heartbeat y topics propagados en el mensaje de gossip."""
+        return {
+            pid: {
+                "heartbeat": estado["heartbeat"],
+                "topics": list(estado["topics"]),
+            }
+            for pid, estado in self._seen.items()
+        }
 
     def elegir(self, rng: RandomSource, f: int) -> list[str]:
         """Elige peers no muertos para una ronda de membresia gossip.
