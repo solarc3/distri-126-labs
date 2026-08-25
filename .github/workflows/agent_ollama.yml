@@ -49,14 +49,14 @@ jobs:
           - Si los cambios son solo mecánicos (logs, tipos, test básicos) y no tocan la semántica de red, responde exactamente con: '[IA Review] mecánico y mergeable'.
           - Sé muy breve, responde solamente con la clasificación y una pequeña justificación de 1 oración."
           
-          # Ejecutar inferencia
-          RESPONSE=$(ollama run qwen2.5:0.5b "$PROMPT")
+          # Convertir prompt a JSON seguro
+          JSON_PAYLOAD=$(jq -n --arg p "$PROMPT" '{model: "qwen2.5:0.5b", prompt: $p, stream: false}')
+          
+          # Ejecutar inferencia via API REST
+          curl -s -X POST http://localhost:11434/api/generate -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.response' > ai_comment.txt
           
           echo "Respuesta de la IA:"
-          echo "$RESPONSE"
-          
-          # Guardar respuesta en un archivo para el siguiente paso
-          echo "$RESPONSE" > ai_comment.txt
+          cat ai_comment.txt
 
       - name: Comentar en el PR
         env:
