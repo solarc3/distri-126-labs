@@ -40,7 +40,7 @@ jobs:
           JSON_PAYLOAD=$(jq -n --arg diff "$(cat diff_short.txt)" '{
             model: "llama3.2", 
             messages: [
-              {role: "system", content: "Eres el Agente Revisor de MR del framework CivicMesh. Tu tarea es analizar el diff de código provisto y clasificar el impacto.\nREGLA 1: Si el código modifica lógica de red, gossip, pubsub, sockets, threads o fanout, tu respuesta debe ser EXACTAMENTE: '[IA Review] requiere revisión humana. Justificación: [escribe el motivo en 1 oración]'.\nREGLA 2: Si el código solo modifica logs, variables, comentarios, typos, documentación o tests simples, tu respuesta debe ser EXACTAMENTE: '[IA Review] mecánico y mergeable. Justificación: [escribe el motivo en 1 oración]'.\nBajo NINGUNA circunstancia agregues introducciones, conclusiones o texto adicional."},
+              {role: "system", content: "Eres el Agente Revisor de MR del framework CivicMesh. Tu tarea es analizar el diff de código provisto y clasificar el impacto.\nREGLA 1: Si el código modifica lógica de red, gossip, pubsub, sockets, threads o fanout, tu respuesta debe ser EXACTAMENTE: \"[IA Review] requiere revisión humana. Justificación: [escribe el motivo en 1 oración]\".\nREGLA 2: Si el código solo modifica logs, variables, comentarios, typos, documentación o tests simples, tu respuesta debe ser EXACTAMENTE: \"[IA Review] mecánico y mergeable. Justificación: [escribe el motivo en 1 oración]\".\nBajo NINGUNA circunstancia agregues introducciones, conclusiones o texto adicional."},
               {role: "user", content: $diff}
             ],
             stream: false, 
