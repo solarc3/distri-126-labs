@@ -1,0 +1,43 @@
+name: Agent Bugs (Ollama)
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # Diario
+  workflow_dispatch:
+
+jobs:
+  bug_reviewer:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          
+      - name: Start Ollama Server
+        run: |
+          ollama serve &
+          sleep 5
+          ollama pull llama3.2
+
+      - name: Analyze Code
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Recopilando código..."
+          cat civicmesh/protocol.py civicmesh/node.py 2>/dev/null | head -n 500 > code_context.txt || echo "Código no encontrado" > code_context.txt
+          
+          # Llamar al script de Python
+          python scripts/agent_bugs.py
+
+      - name: Create Issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create --title "[IA] Informe diario de posibles vulnerabilidades o bugs lógicos" --body-file issue_body.txt --label "bug" || echo "Fallo al crear issue."
