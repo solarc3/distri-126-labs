@@ -1,0 +1,33 @@
+name: Agent Docs (Ollama)
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Semanal (Domingos)
+  workflow_dispatch:
+
+jobs:
+  doc_reviewer:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Analyze Documentation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Recopilando documentación..."
+          cat README.md CHANGELOG.md 2>/dev/null | head -n 500 > docs_context.txt || echo "Documentos no encontrados" > docs_context.txt
+          
+          # Llamar al script de Python
+          python scripts/agent_docs.py
+
+      - name: Create Issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create --title "[IA] Revisión semanal del estado de la documentación" --body-file issue_body.txt --label "documentation" || echo "Fallo al crear issue."
