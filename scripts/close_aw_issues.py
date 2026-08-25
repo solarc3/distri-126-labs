@@ -1,7 +1,8 @@
+import json
 import os
 import sys
 import urllib.request
-import json
+
 
 def get_aw_issues(token):
     url = "https://api.github.com/repos/solarc3/distri-126-labs/issues?state=open&per_page=100"
@@ -23,6 +24,7 @@ def get_aw_issues(token):
         print(f"Error fetching issues: {e}")
     return issues_to_close
 
+
 def close_issue(issue_number, token):
     url = f"https://api.github.com/repos/solarc3/distri-126-labs/issues/{issue_number}"
     headers = {
@@ -31,13 +33,19 @@ def close_issue(issue_number, token):
         "X-GitHub-Api-Version": "2022-11-28"
     }
     data = {"state": "closed"}
-    req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers, method="PATCH")
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(data).encode("utf-8"),
+        headers=headers,
+        method="PATCH"
+    )
     
     try:
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req):
             print(f"Issue #{issue_number} cerrado.")
     except Exception as e:
         print(f"Error cerrando issue #{issue_number}: {e}")
+
 
 if __name__ == "__main__":
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
