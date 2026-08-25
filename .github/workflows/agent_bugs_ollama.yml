@@ -33,11 +33,11 @@ jobs:
           echo "Recopilando código..."
           cat civicmesh/protocol.py civicmesh/node.py 2>/dev/null | head -n 500 > code_context.txt || echo "Código no encontrado" > code_context.txt
           
-          # Uso de API Chat + Parser en Bash
+          # English Prompt
           JSON_PAYLOAD=$(jq -n --arg code "$(cat code_context.txt)" '{
             model: "qwen2.5:0.5b", 
             messages: [
-              {role: "system", content: "Analiza el código Python de networking provisto. Eres un sistema de auditoría binaria.\nSi encuentras problemas de concurrencia, deadlocks, llamadas a sockets mal cerrados o errores lógicos en el ruteo pubsub/gossip, responde EXACTAMENTE comenzando con la palabra PELIGRO seguida del problema encontrado (1 oración).\nSi el código se ve estructuralmente bien o los problemas son puramente estéticos (nombres de variables, logs), responde EXACTAMENTE comenzando con la palabra SEGURO seguida de un mensaje corto de confirmación."},
+              {role: "system", content: "Analyze the provided Python networking code. You are a strict binary auditing system.\nIf you find concurrency issues, deadlocks, poorly closed sockets, or logical errors in pubsub/gossip routing, reply EXACTLY starting with the word DANGER followed by the issue found (1 sentence).\nIf the code looks structurally fine or issues are purely aesthetic (variable names, logs), reply EXACTLY starting with the word SAFE followed by a short confirmation."},
               {role: "user", content: $code}
             ],
             stream: false, 
@@ -46,12 +46,15 @@ jobs:
           
           RAW_RESP=$(curl -s -X POST http://localhost:11434/api/chat -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.message.content')
           
-          # Parser seguro en Bash
-          if [[ "$RAW_RESP" == *"PELIGRO"* ]]; then
-             CLEAN_REASON=$(echo "$RAW_RESP" | sed 's/PELIGRO//g' | xargs)
+          echo "Raw AI response: $RAW_RESP"
+          
+          UPPER_RESP=$(echo "$RAW_RESP" | tr '[:lower:]' '[:upper:]')
+          
+          if [[ "$UPPER_RESP" == *"DANGER"* ]]; then
+             CLEAN_REASON=$(echo "$RAW_RESP" | sed 's/[Dd][Aa][Nn][Gg][Ee][Rr]//g' | sed 's/^[ \t:-]*//' | xargs)
              FINAL_TEXT="Requiere intervención humana.\nSe han detectado posibles vulnerabilidades o fallos semánticos: $CLEAN_REASON"
-          elif [[ "$RAW_RESP" == *"SEGURO"* ]]; then
-             CLEAN_REASON=$(echo "$RAW_RESP" | sed 's/SEGURO//g' | xargs)
+          elif [[ "$UPPER_RESP" == *"SAFE"* ]]; then
+             CLEAN_REASON=$(echo "$RAW_RESP" | sed 's/[Ss][Aa][Ff][Ee]//g' | sed 's/^[ \t:-]*//' | xargs)
              FINAL_TEXT="No se encontraron anomalías graves.\nAuditoría estática: $CLEAN_REASON"
           else
              FINAL_TEXT="Requiere intervención humana.\nEl modelo detectó ambigüedades y requiere revisión humana."

@@ -36,11 +36,11 @@ jobs:
           gh pr diff $PR_NUMBER > pr_diff.txt
           head -n 500 pr_diff.txt > diff_short.txt
           
-          # Uso de API Chat + Parser en Bash
+          # English Prompt for better instruction following on 0.5b models
           JSON_PAYLOAD=$(jq -n --arg diff "$(cat diff_short.txt)" '{
             model: "qwen2.5:0.5b", 
             messages: [
-              {role: "system", content: "Analiza el diff de código provisto. Eres un sistema de clasificación binaria estricta.\nSi el código modifica lógica de red, gossip, pubsub, sockets, threads o fanout, responde EXACTAMENTE comenzando con la palabra PELIGRO seguida de una razón breve.\nSi el código solo modifica logs, variables, comentarios, typos, documentacion o tests simples, responde EXACTAMENTE comenzando con la palabra SEGURO seguida de una razón breve."},
+              {role: "system", content: "Analyze the provided code diff. You are a strict binary classification system.\nIf the code modifies network logic, gossip, pubsub, sockets, threads, or fanout, reply EXACTLY starting with the word DANGER followed by a brief reason.\nIf the code only modifies logs, variables, comments, typos, documentation, or simple tests, reply EXACTLY starting with the word SAFE followed by a brief reason."},
               {role: "user", content: $diff}
             ],
             stream: false, 
@@ -49,12 +49,18 @@ jobs:
           
           RAW_RESP=$(curl -s -X POST http://localhost:11434/api/chat -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.message.content')
           
+          echo "Raw AI response: $RAW_RESP"
+          
+          # Uppercase for safe string matching
+          UPPER_RESP=$(echo "$RAW_RESP" | tr '[:lower:]' '[:upper:]')
+          
           # Parser seguro en Bash
-          if [[ "$RAW_RESP" == *"PELIGRO"* ]]; then
-             CLEAN_REASON=$(echo "$RAW_RESP" | sed 's/PELIGRO//g' | xargs)
+          if [[ "$UPPER_RESP" == *"DANGER"* ]]; then
+             # Remove DANGER (any case) and leading punctuation
+             CLEAN_REASON=$(echo "$RAW_RESP" | sed 's/[Dd][Aa][Nn][Gg][Ee][Rr]//g' | sed 's/^[ \t:-]*//' | xargs)
              FINAL_TEXT="[IA Review] requiere revisión humana.\nJustificación: $CLEAN_REASON"
-          elif [[ "$RAW_RESP" == *"SEGURO"* ]]; then
-             CLEAN_REASON=$(echo "$RAW_RESP" | sed 's/SEGURO//g' | xargs)
+          elif [[ "$UPPER_RESP" == *"SAFE"* ]]; then
+             CLEAN_REASON=$(echo "$RAW_RESP" | sed 's/[Ss][Aa][Ff][Ee]//g' | sed 's/^[ \t:-]*//' | xargs)
              FINAL_TEXT="[IA Review] mecánico y mergeable.\nJustificación: $CLEAN_REASON"
           else
              # Fallback si el modelo sigue alucinando
