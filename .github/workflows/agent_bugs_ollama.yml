@@ -33,18 +33,17 @@ jobs:
           echo "Recopilando código..."
           cat civicmesh/protocol.py civicmesh/node.py 2>/dev/null | head -n 500 > code_context.txt || echo "Código no encontrado" > code_context.txt
           
-          PROMPT="Eres el Agente Revisor de Bugs de CivicMesh. Tu tarea es analizar el código base en busca de vulnerabilidades, problemas de concurrencia, malas prácticas de red o fallas en el protocolo pub/sub o gossip.
+          PROMPT="Analiza este código de Python buscando bugs lógicos o problemas de concurrencia:
           
-          Código actual (muestra parcial):
           $(cat code_context.txt)
           
-          Reglas de resolución:
-          - Identifica si hay algún problema lógico evidente.
-          - Si encuentras algo que afecte la lógica central (should_forward, latencia de descubrimiento), debes indicar obligatoriamente: 'Requiere intervención humana'.
-          - Si está todo bien o son detalles menores, indica que no se encontraron anomalías graves.
-          - Responde de forma técnica y muy breve (máximo 3 oraciones)."
+          DEBES responder ÚNICAMENTE con UNA de estas dos frases y NADA MÁS:
+          OPCIÓN 1: 'Requiere intervención humana' (Úsala si encuentras problemas reales de sockets, deadlocks, fallas en protocol.py o node.py).
+          OPCIÓN 2: 'No se encontraron anomalías graves.' (Úsala si el código se ve bien o solo hay detalles menores).
           
-          JSON_PAYLOAD=$(jq -n --arg p "$PROMPT" '{model: "qwen2.5:0.5b", prompt: $p, stream: false}')
+          Justifica tu elección en una sola oración. NO agregues introducciones ni des sugerencias de código."
+          
+          JSON_PAYLOAD=$(jq -n --arg p "$PROMPT" '{model: "qwen2.5:0.5b", prompt: $p, stream: false, options: {temperature: 0.0}}')
           curl -s -X POST http://localhost:11434/api/generate -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.response' > ai_raw.txt
           
           echo -e "**[Agente Revisor de Bugs]** Informe de análisis de código base:\n\n$(cat ai_raw.txt)" > issue_body.txt

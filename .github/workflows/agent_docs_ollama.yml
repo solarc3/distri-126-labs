@@ -33,17 +33,17 @@ jobs:
           echo "Recopilando documentación..."
           cat README.md CHANGELOG.md 2>/dev/null | head -n 500 > docs_context.txt || echo "Documentos no encontrados" > docs_context.txt
           
-          PROMPT="Eres el Agente Documentador de CivicMesh. Tu tarea es analizar la documentación del proyecto.
+          PROMPT="Analiza estrictamente estos documentos (README/CHANGELOG):
           
-          Documentación actual:
           $(cat docs_context.txt)
           
-          Reglas de resolución:
-          - Evalúa si el README cubre: instalación, ejecución local (Compose), despliegue en cluster (Slurm) y frontend.
-          - Si el arreglo o lo que falta requiere una decisión técnica (ej: explicar arquitectura pub/sub o parámetros), debes incluir exactamente la frase: 'Requiere intervención humana: <motivo>'.
-          - Sé muy directo y lista los puntos faltantes (máximo 3 bullets)."
+          DEBES responder ÚNICAMENTE con UNA de estas dos opciones y NADA MÁS:
+          OPCIÓN 1: 'Requiere intervención humana: <escribe_aqui_el_motivo_en_1_oracion>' (Úsala si falta explicar la arquitectura pub/sub, faltan parámetros, falta Slurm o Docker).
+          OPCIÓN 2: 'La documentación parece estar completa y cumple los requisitos básicos.' (Úsala si ves instrucciones de Slurm, Docker y Frontend).
           
-          JSON_PAYLOAD=$(jq -n --arg p "$PROMPT" '{model: "qwen2.5:0.5b", prompt: $p, stream: false}')
+          NO expliques reglas. NO inventes código. Sé directo."
+          
+          JSON_PAYLOAD=$(jq -n --arg p "$PROMPT" '{model: "qwen2.5:0.5b", prompt: $p, stream: false, options: {temperature: 0.0}}')
           curl -s -X POST http://localhost:11434/api/generate -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.response' > ai_raw.txt
           
           echo -e "**[Agente Documentador]** Revisión de estado de documentación:\n\n$(cat ai_raw.txt)" > issue_body.txt

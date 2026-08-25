@@ -36,17 +36,17 @@ jobs:
           gh pr diff $PR_NUMBER > pr_diff.txt
           head -n 500 pr_diff.txt > diff_short.txt
           
-          PROMPT="Eres el Agente Revisor de MR del framework CivicMesh (Python). Tu tarea es clasificar el impacto de los cambios. 
-          Aquí está el diff del Pull Request:
+          PROMPT="Eres un clasificador estricto. Analiza este diff de código de Python:
           
           $(cat diff_short.txt)
           
-          Reglas:
-          - Si el cambio altera el comportamiento de la red, modifica el fanout, el protocolo pub/sub o gossip, responde exactamente con: '[IA Review] requiere revisión humana'.
-          - Si los cambios son solo mecánicos (logs, tipos, test básicos) y no tocan la semántica de red, responde exactamente con: '[IA Review] mecánico y mergeable'.
-          - Sé muy breve, responde solamente con la clasificación y una pequeña justificación de 1 oración."
+          DEBES responder ÚNICAMENTE con UNA de estas dos frases y NADA MÁS:
+          OPCIÓN 1: '[IA Review] requiere revisión humana' (Úsala si el código modifica lógica de red, gossip, pubsub, sockets, threads o fanout).
+          OPCIÓN 2: '[IA Review] mecánico y mergeable' (Úsala si solo modifica logs, variables, comentarios, typos o tests simples).
           
-          JSON_PAYLOAD=$(jq -n --arg p "$PROMPT" '{model: "qwen2.5:0.5b", prompt: $p, stream: false}')
+          Justifica tu elección en una sola oración en la misma línea. NO expliques nada más."
+          
+          JSON_PAYLOAD=$(jq -n --arg p "$PROMPT" '{model: "qwen2.5:0.5b", prompt: $p, stream: false, options: {temperature: 0.0}}')
           curl -s -X POST http://localhost:11434/api/generate -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.response' > ai_raw.txt
           
           # Añadir firma formal
