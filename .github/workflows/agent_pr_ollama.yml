@@ -34,31 +34,9 @@ jobs:
         run: |
           echo "Obteniendo diff del PR..."
           gh pr diff $PR_NUMBER > pr_diff.txt
-          head -n 500 pr_diff.txt > diff_short.txt
           
-          # English prompt with few-shot example and bash fallback
-          JSON_PAYLOAD=$(jq -n --arg diff "$(cat diff_short.txt)" '{
-            model: "llama3.2",
-            messages: [
-              {role: "system", content: "You are a strict CI/CD classifier bot. Your ONLY job is to output a classification string in Spanish. DO NOT explain the code. DO NOT say hello. DO NOT describe the files.\n\nIf the code touches networking, gossip, pubsub, sockets or threads, output EXACTLY this string and nothing else:\n[IA Review] requiere revisión humana. Justificación: [reason in spanish]\n\nIf the code touches logs, docs, or variables, output EXACTLY this string and nothing else:\n[IA Review] mecánico y mergeable. Justificación: [reason in spanish]\n\nExample Output:\n[IA Review] requiere revisión humana. Justificación: El diff modifica la lógica de sockets en protocol.py."},
-              {role: "user", content: $diff}
-            ],
-            stream: false, 
-            options: {temperature: 0.0}
-          }')
-          
-          RAW_RESP=$(curl -s -X POST http://localhost:11434/api/chat -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.message.content')
-          
-          echo "Raw AI response: $RAW_RESP"
-          
-          # Filtro de Seguridad en Bash
-          if echo "$RAW_RESP" | grep -q "\[IA Review\]"; then
-            FINAL_TEXT="$RAW_RESP"
-          else
-            FINAL_TEXT="[IA Review] requiere revisión humana.\nJustificación: (El modelo LLM falló al seguir el formato estricto y devolvió texto no estructurado)."
-          fi
-          
-          echo -e "**[Agente Revisor de MR]** Análisis de impacto en Pull Request:\n\n$FINAL_TEXT" > ai_comment.txt
+          # Llamar al script de Python que mezcla heurística con Ollama
+          python scripts/agent_pr.py
 
       - name: Comentar en el PR
         env:
