@@ -33,11 +33,11 @@ jobs:
           echo "Recopilando código..."
           cat civicmesh/protocol.py civicmesh/node.py 2>/dev/null | head -n 500 > code_context.txt || echo "Código no encontrado" > code_context.txt
           
-          # Clean prompt trusting llama3.2
+          # English prompt with few-shot example and bash fallback
           JSON_PAYLOAD=$(jq -n --arg code "$(cat code_context.txt)" '{
-            model: "llama3.2", 
+            model: "llama3.2",
             messages: [
-              {role: "system", content: "Eres el Agente Revisor de Bugs de CivicMesh. Analiza el código Python provisto.\nREGLA 1: Si encuentras problemas de concurrencia, deadlocks, sockets mal cerrados o errores lógicos en el ruteo pubsub/gossip, responde EXACTAMENTE: \"Requiere intervención humana. Se han detectado posibles vulnerabilidades o fallos semánticos: [describe el problema en 1 oración]\".\nREGLA 2: Si el código se ve estructuralmente bien o los problemas son puramente estéticos, responde EXACTAMENTE: \"No se encontraron anomalías graves. Auditoría estática: [confirma el estado en 1 oración]\".\nNO agregues ningún texto adicional, saludos o despedidas."},
+              {role: "system", content: "You are a strict code auditing bot. Your ONLY job is to output a classification string in Spanish. DO NOT explain the code. DO NOT say hello.\n\nIf you find concurrency issues, deadlocks, or logic errors in pubsub/gossip, output EXACTLY this string and nothing else:\n[IA Audit] Requiere intervención humana. Posibles vulnerabilidades: [reason in spanish]\n\nIf the code looks structurally fine or issues are purely aesthetic, output EXACTLY this string and nothing else:\n[IA Audit] No se encontraron anomalías graves. Auditoría estática: [reason in spanish]\n\nExample Output:\n[IA Audit] No se encontraron anomalías graves. Auditoría estática: El manejo de sockets está correctamente encapsulado."},
               {role: "user", content: $code}
             ],
             stream: false, 
@@ -46,7 +46,16 @@ jobs:
           
           RAW_RESP=$(curl -s -X POST http://localhost:11434/api/chat -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.message.content')
           
-          echo -e "**[Agente Revisor de Bugs]** Informe de análisis de código base:\n\n$RAW_RESP" > issue_body.txt
+          echo "Raw AI response: $RAW_RESP"
+          
+          # Filtro de Seguridad en Bash
+          if echo "$RAW_RESP" | grep -q "\[IA Audit\]"; then
+            FINAL_TEXT=$(echo "$RAW_RESP" | sed 's/\[IA Audit\] //g')
+          else
+            FINAL_TEXT="Requiere intervención humana.\nJustificación: (El modelo LLM falló al seguir el formato estricto y devolvió texto no estructurado)."
+          fi
+          
+          echo -e "**[Agente Revisor de Bugs]** Informe de análisis de código base:\n\n$FINAL_TEXT" > issue_body.txt
 
       - name: Create Issue
         env:

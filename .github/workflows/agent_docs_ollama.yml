@@ -33,11 +33,11 @@ jobs:
           echo "Recopilando documentación..."
           cat README.md CHANGELOG.md 2>/dev/null | head -n 500 > docs_context.txt || echo "Documentos no encontrados" > docs_context.txt
           
-          # Clean prompt trusting llama3.2
+          # English prompt with few-shot example and bash fallback
           JSON_PAYLOAD=$(jq -n --arg docs "$(cat docs_context.txt)" '{
-            model: "llama3.2", 
+            model: "llama3.2",
             messages: [
-              {role: "system", content: "Eres el Agente Documentador de CivicMesh. Analiza los archivos README y CHANGELOG.\nREGLA 1: Si falta documentación sobre cómo correr el clúster con Slurm, levantar Docker Compose, o no se explica la arquitectura general (Gossip/PubSub), responde EXACTAMENTE: \"Requiere intervención humana: [lista brevemente lo que falta]\".\nREGLA 2: Si todos esos temas están explicados, responde EXACTAMENTE: \"La documentación parece estar completa y cumple los requisitos básicos (Slurm, Docker, framework descritos).\"\nNO añadas preámbulos ni conclusiones."},
+              {role: "system", content: "You are a strict documentation auditing bot. Your ONLY job is to output a classification string in Spanish. DO NOT explain the text. DO NOT say hello.\n\nIf the documentation lacks instructions on Slurm, Docker Compose, or the general architecture (Gossip/PubSub), output EXACTLY this string and nothing else:\n[IA Docs] Requiere intervención humana. Falta: [list what is missing in spanish]\n\nIf Slurm, Docker and architecture are properly documented, output EXACTLY this string and nothing else:\n[IA Docs] La documentación parece estar completa y cumple los requisitos básicos.\n\nExample Output:\n[IA Docs] La documentación parece estar completa y cumple los requisitos básicos."},
               {role: "user", content: $docs}
             ],
             stream: false, 
@@ -46,7 +46,16 @@ jobs:
           
           RAW_RESP=$(curl -s -X POST http://localhost:11434/api/chat -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.message.content')
           
-          echo -e "**[Agente Documentador]** Revisión de estado de documentación:\n\n$RAW_RESP" > issue_body.txt
+          echo "Raw AI response: $RAW_RESP"
+          
+          # Filtro de Seguridad en Bash
+          if echo "$RAW_RESP" | grep -q "\[IA Docs\]"; then
+            FINAL_TEXT=$(echo "$RAW_RESP" | sed 's/\[IA Docs\] //g')
+          else
+            FINAL_TEXT="Requiere intervención humana. (El modelo LLM falló al seguir el formato estricto y devolvió texto no estructurado)."
+          fi
+          
+          echo -e "**[Agente Documentador]** Revisión de estado de documentación:\n\n$FINAL_TEXT" > issue_body.txt
 
       - name: Create Issue
         env:

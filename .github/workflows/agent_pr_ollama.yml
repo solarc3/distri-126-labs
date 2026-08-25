@@ -36,11 +36,11 @@ jobs:
           gh pr diff $PR_NUMBER > pr_diff.txt
           head -n 500 pr_diff.txt > diff_short.txt
           
-          # Clean prompt trusting llama3.2's instruction following
+          # English prompt with few-shot example and bash fallback
           JSON_PAYLOAD=$(jq -n --arg diff "$(cat diff_short.txt)" '{
-            model: "llama3.2", 
+            model: "llama3.2",
             messages: [
-              {role: "system", content: "Eres el Agente Revisor de MR del framework CivicMesh. Tu tarea es analizar el diff de código provisto y clasificar el impacto.\nREGLA 1: Si el código modifica lógica de red, gossip, pubsub, sockets, threads o fanout, tu respuesta debe ser EXACTAMENTE: \"[IA Review] requiere revisión humana. Justificación: [escribe el motivo en 1 oración]\".\nREGLA 2: Si el código solo modifica logs, variables, comentarios, typos, documentación o tests simples, tu respuesta debe ser EXACTAMENTE: \"[IA Review] mecánico y mergeable. Justificación: [escribe el motivo en 1 oración]\".\nBajo NINGUNA circunstancia agregues introducciones, conclusiones o texto adicional."},
+              {role: "system", content: "You are a strict CI/CD classifier bot. Your ONLY job is to output a classification string in Spanish. DO NOT explain the code. DO NOT say hello. DO NOT describe the files.\n\nIf the code touches networking, gossip, pubsub, sockets or threads, output EXACTLY this string and nothing else:\n[IA Review] requiere revisión humana. Justificación: [reason in spanish]\n\nIf the code touches logs, docs, or variables, output EXACTLY this string and nothing else:\n[IA Review] mecánico y mergeable. Justificación: [reason in spanish]\n\nExample Output:\n[IA Review] requiere revisión humana. Justificación: El diff modifica la lógica de sockets en protocol.py."},
               {role: "user", content: $diff}
             ],
             stream: false, 
@@ -49,8 +49,16 @@ jobs:
           
           RAW_RESP=$(curl -s -X POST http://localhost:11434/api/chat -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.message.content')
           
-          # Añadir firma formal
-          echo -e "**[Agente Revisor de MR]** Análisis de impacto en Pull Request:\n\n$RAW_RESP" > ai_comment.txt
+          echo "Raw AI response: $RAW_RESP"
+          
+          # Filtro de Seguridad en Bash
+          if echo "$RAW_RESP" | grep -q "\[IA Review\]"; then
+            FINAL_TEXT="$RAW_RESP"
+          else
+            FINAL_TEXT="[IA Review] requiere revisión humana.\nJustificación: (El modelo LLM falló al seguir el formato estricto y devolvió texto no estructurado)."
+          fi
+          
+          echo -e "**[Agente Revisor de MR]** Análisis de impacto en Pull Request:\n\n$FINAL_TEXT" > ai_comment.txt
 
       - name: Comentar en el PR
         env:
