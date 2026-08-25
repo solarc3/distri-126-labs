@@ -38,6 +38,16 @@ Para levantar la malla con perfiles específicos, usar:
 # Dominio A (Delitos)
 make compose-delitos
 
+La capa pub/sub obtiene destinos mediante `MembershipView.vivos()` y consulta
+sus tópicos con `MembershipView.topics_de()`. Asi, el trafico de aplicacion solo
+se envia a peers confirmados como `alive` sin duplicar las suscripciones fuera
+de la vista.
+
+Los TTL y prioridades iniciales de los canales `objetivo` y `subjetivo` se
+definen en la sección `pubsub.channels` de `config.example.yaml`. Los reenvíos
+pendientes se despachan de mayor a menor prioridad. El grafo simétrico de
+adyacencia usado para filtrar destinos está versionado en
+`civicmesh/comunas_rm.yaml`.
 # Dominio B (Aire)
 make compose-aire
 ```
