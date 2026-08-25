@@ -24,7 +24,7 @@ jobs:
         run: |
           ollama serve &
           sleep 5
-          ollama pull qwen2.5:0.5b
+          ollama pull llama3.2
 
       - name: Analyze Code
         env:
@@ -35,7 +35,7 @@ jobs:
           
           # English Prompt
           JSON_PAYLOAD=$(jq -n --arg code "$(cat code_context.txt)" '{
-            model: "qwen2.5:0.5b", 
+            model: "llama3.2", 
             messages: [
               {role: "system", content: "Analyze the provided Python networking code. You are a strict binary auditing system.\nIf you find concurrency issues, deadlocks, poorly closed sockets, or logical errors in pubsub/gossip routing, reply EXACTLY starting with the word DANGER followed by the issue found (1 sentence).\nIf the code looks structurally fine or issues are purely aesthetic (variable names, logs), reply EXACTLY starting with the word SAFE followed by a short confirmation."},
               {role: "user", content: $code}

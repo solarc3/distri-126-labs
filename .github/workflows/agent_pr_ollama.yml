@@ -25,7 +25,7 @@ jobs:
         run: |
           ollama serve &
           sleep 5
-          ollama pull qwen2.5:0.5b
+          ollama pull llama3.2
 
       - name: Get PR Diff and Analyze
         env:
@@ -38,7 +38,7 @@ jobs:
           
           # English Prompt for better instruction following on 0.5b models
           JSON_PAYLOAD=$(jq -n --arg diff "$(cat diff_short.txt)" '{
-            model: "qwen2.5:0.5b", 
+            model: "llama3.2", 
             messages: [
               {role: "system", content: "Analyze the provided code diff. You are a strict binary classification system.\nIf the code modifies network logic, gossip, pubsub, sockets, threads, or fanout, reply EXACTLY starting with the word DANGER followed by a brief reason.\nIf the code only modifies logs, variables, comments, typos, documentation, or simple tests, reply EXACTLY starting with the word SAFE followed by a brief reason."},
               {role: "user", content: $diff}
