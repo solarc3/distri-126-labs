@@ -110,7 +110,7 @@ corre en un host GPU usando solo la CPU del host (Sección 5.1); no usa CUDA.
 ## Verificacion
 
 ```bash
-ruff check civicmesh tests
-ruff format --check civicmesh tests
+ruff check civicmesh tests scripts
+ruff format --check civicmesh tests scripts
 python -B -m unittest discover -v
 ```
