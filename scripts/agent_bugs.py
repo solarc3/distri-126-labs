@@ -6,11 +6,17 @@ import urllib.request
 def analyze_bugs(code_text):
     # Heurística para malas prácticas o bugs
     critical_patterns = [
-        (r"except\s*:", "Uso de 'except:' genérico que atrapa excepciones del sistema."),
+        (
+            r"except\s*:", 
+            "Uso de 'except:' genérico que atrapa excepciones del sistema."
+        ),
         (r"while\s+True\s*:\s*pass", "Bucle infinito con 'pass' que consume 100% CPU."),
         (r"time\.sleep\(\s*[1-9][0-9]*\s*\)", "Llamada a time.sleep() largo, bloqueo."),
         (r"\.socket\(", "Creación de sockets crudos, validar que se liberen recursos."),
-        (r"lock\.acquire\(\)", "Uso explícito de locks, validar prevención de deadlocks.")
+        (
+            r"lock\.acquire\(\)", 
+            "Uso explícito de locks, validar prevención de deadlocks."
+        )
     ]
     
     issues_found = []
@@ -53,7 +59,8 @@ def analyze_bugs(code_text):
     
     if issues_found:
         body = (
-            "Requiere intervención humana.\nSe han detectado posibles vulnerabilidades:\n- " 
+            "Requiere intervención humana.\n"
+            "Se han detectado posibles vulnerabilidades:\n- " 
             + "\n- ".join(issues_found)
         )
     else:
