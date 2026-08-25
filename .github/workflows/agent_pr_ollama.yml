@@ -1,4 +1,4 @@
-name: Ollama PR Agent
+name: Agent PR (Ollama)
 
 on:
   pull_request:
@@ -34,12 +34,9 @@ jobs:
         run: |
           echo "Obteniendo diff del PR..."
           gh pr diff $PR_NUMBER > pr_diff.txt
-          
-          # Acotar el tamaño del diff si es demasiado grande para evitar OOM o demoras
           head -n 500 pr_diff.txt > diff_short.txt
           
-          echo "Analizando código con Ollama..."
-          PROMPT="Eres el Agente Revisor de PRs del framework CivicMesh (Python). Tu tarea es clasificar el impacto de los cambios. 
+          PROMPT="Eres el Agente Revisor de MR del framework CivicMesh (Python). Tu tarea es clasificar el impacto de los cambios. 
           Aquí está el diff del Pull Request:
           
           $(cat diff_short.txt)
@@ -49,14 +46,11 @@ jobs:
           - Si los cambios son solo mecánicos (logs, tipos, test básicos) y no tocan la semántica de red, responde exactamente con: '[IA Review] mecánico y mergeable'.
           - Sé muy breve, responde solamente con la clasificación y una pequeña justificación de 1 oración."
           
-          # Convertir prompt a JSON seguro
           JSON_PAYLOAD=$(jq -n --arg p "$PROMPT" '{model: "qwen2.5:0.5b", prompt: $p, stream: false}')
+          curl -s -X POST http://localhost:11434/api/generate -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.response' > ai_raw.txt
           
-          # Ejecutar inferencia via API REST
-          curl -s -X POST http://localhost:11434/api/generate -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.response' > ai_comment.txt
-          
-          echo "Respuesta de la IA:"
-          cat ai_comment.txt
+          # Añadir firma formal
+          echo -e "**[Agente Revisor de MR]** Análisis de impacto en Pull Request:\n\n$(cat ai_raw.txt)" > ai_comment.txt
 
       - name: Comentar en el PR
         env:

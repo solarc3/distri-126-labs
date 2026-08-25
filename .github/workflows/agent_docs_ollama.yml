@@ -1,0 +1,55 @@
+name: Agent Docs (Ollama)
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Semanal (Domingos)
+  workflow_dispatch:
+
+jobs:
+  doc_reviewer:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          
+      - name: Start Ollama Server
+        run: |
+          ollama serve &
+          sleep 5
+          ollama pull qwen2.5:0.5b
+
+      - name: Analyze Documentation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Recopilando documentación..."
+          cat README.md CHANGELOG.md 2>/dev/null | head -n 500 > docs_context.txt || echo "Documentos no encontrados" > docs_context.txt
+          
+          PROMPT="Eres el Agente Documentador de CivicMesh. Tu tarea es analizar la documentación del proyecto.
+          
+          Documentación actual:
+          $(cat docs_context.txt)
+          
+          Reglas de resolución:
+          - Evalúa si el README cubre: instalación, ejecución local (Compose), despliegue en cluster (Slurm) y frontend.
+          - Si el arreglo o lo que falta requiere una decisión técnica (ej: explicar arquitectura pub/sub o parámetros), debes incluir exactamente la frase: 'Requiere intervención humana: <motivo>'.
+          - Sé muy directo y lista los puntos faltantes (máximo 3 bullets)."
+          
+          JSON_PAYLOAD=$(jq -n --arg p "$PROMPT" '{model: "qwen2.5:0.5b", prompt: $p, stream: false}')
+          curl -s -X POST http://localhost:11434/api/generate -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.response' > ai_raw.txt
+          
+          echo -e "**[Agente Documentador]** Revisión de estado de documentación:\n\n$(cat ai_raw.txt)" > issue_body.txt
+
+      - name: Create Issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create --title "[IA] Revisión semanal del estado de la documentación" --body-file issue_body.txt --label "documentation" || echo "Fallo al crear issue. Asegúrate de que el token tiene permisos de escritura en issues."
