@@ -1,5 +1,6 @@
 import random
 import socket
+import tempfile
 import threading
 import time
 import unittest
@@ -8,6 +9,9 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import patch
 
+import yaml
+
+from civicmesh.comunas import COMUNAS_ADYACENTES
 from civicmesh.membership.gossip import Gossip
 from civicmesh.membership.view import MembershipView
 from civicmesh.node import ConfigError, Node, load_config
@@ -17,8 +21,13 @@ from civicmesh.protocol import (
     codificar_sobre,
     decodificar_sobre,
 )
-from civicmesh.pubsub import PubSub, SubscriptionManager, should_forward
+from civicmesh.pubsub import PoliticasCanales, PubSub, should_forward
 from civicmesh.transport import Transport, resolve_endpoints
+
+POLITICAS_PUBSUB: PoliticasCanales = {
+    "objetivo": {"ttl": 5, "priority": 2},
+    "subjetivo": {"ttl": 3, "priority": 1},
+}
 
 
 def reservar_puertos(cantidad: int) -> list[int]:
@@ -540,9 +549,24 @@ class NodeTests(unittest.TestCase):
         self.assertEqual(config.seeds, ("127.0.0.1:7002",))
         self.assertEqual(config.gossip_fanout, 1)
         self.assertEqual(config.random_seed, 126)
+        self.assertEqual(config.pubsub_policies, POLITICAS_PUBSUB)
 
         with self.assertRaises(ConfigError):
             load_config(config_path, "peer-inexistente")
+
+    def test_config_pubsub_no_usa_defaults_para_ttl_o_prioridad(self) -> None:
+        config_path = Path(__file__).parents[1] / "config.example.yaml"
+        contenido = config_path.read_text(encoding="utf-8")
+        for campo in ("ttl", "priority"):
+            with self.subTest(campo=campo):
+                raw = yaml.safe_load(contenido)
+                del raw["pubsub"]["channels"]["objetivo"][campo]
+
+                with tempfile.TemporaryDirectory() as directorio:
+                    path = Path(directorio) / "config.yaml"
+                    path.write_text(yaml.safe_dump(raw), encoding="utf-8")
+                    with self.assertRaises(ConfigError):
+                        load_config(path, "peer-1")
 
     def test_run_once_drena_antes_de_ejecutar_ticks(self) -> None:
         eventos: list[tuple[str, float | int]] = []
@@ -697,7 +721,7 @@ class PubSubTests(unittest.TestCase):
             t_suspect=10,
             t_dead=20,
         )
-        vista.contacto_directo("127.0.0.1:7002", 1, [], 100.0)
+        vista.contacto_directo("127.0.0.1:7002", 1, ["santiago"], 100.0)
 
         # TTL = 0 (expirado)
         msg_expirado = {
@@ -728,7 +752,7 @@ class PubSubTests(unittest.TestCase):
             t_suspect=10,
             t_dead=20,
         )
-        vista.contacto_directo("127.0.0.1:7002", 1, [], 100.0)
+        vista.contacto_directo("127.0.0.1:7002", 1, ["santiago"], 100.0)
 
         msg_prioridad_invalida = {
             "id": "msg-2",
@@ -762,25 +786,38 @@ class PubSubTests(unittest.TestCase):
         # Sin peers vivos en la vista local -> False
         self.assertFalse(should_forward(msg, "santiago", vista))
 
-        # Peer vivo pero sin interés registrado en suscripciones -> False
-        vista.contacto_directo("127.0.0.1:7002", 1, [], 100.0)
-        subs = SubscriptionManager()
-        subs.registrar_suscripcion_peer("127.0.0.1:7002", ["las_condes"])
-        self.assertFalse(should_forward(msg, "santiago", vista, subs))
+        # Peer vivo pero sin interés registrado en la vista -> False
+        vista.contacto_directo("127.0.0.1:7002", 1, ["las_condes"], 100.0)
+        self.assertFalse(should_forward(msg, "santiago", vista))
 
         # Con suscripción coincidente -> True
-        subs.registrar_suscripcion_peer("127.0.0.1:7002", ["santiago"])
-        self.assertTrue(should_forward(msg, "santiago", vista, subs))
+        vista.contacto_directo("127.0.0.1:7002", 2, ["santiago"], 101.0)
+        self.assertTrue(should_forward(msg, "santiago", vista))
 
     def test_adyacencia_espacial_en_suscripciones(self) -> None:
-        subs = SubscriptionManager()
-        # Peer 2 suscrito a Providencia (adyacente a Santiago)
-        subs.registrar_suscripcion_peer("127.0.0.1:7002", ["providencia"])
+        vista = MembershipView(
+            "127.0.0.1:7001",
+            ["127.0.0.1:7002"],
+            t_suspect=10,
+            t_dead=20,
+        )
+        vista.contacto_directo("127.0.0.1:7002", 1, ["providencia"], 100.0)
+        msg = {"ttl": 2, "priority": 1}
 
         # Mensaje publicado en Santiago debe ser de interés para Providencia
-        self.assertTrue(subs.esta_interesado_peer("127.0.0.1:7002", "santiago"))
+        self.assertTrue(should_forward(msg, "santiago", vista))
         # Mensaje publicado en Maipú NO es adyacente a Providencia directamente
-        self.assertFalse(subs.esta_interesado_peer("127.0.0.1:7002", "maipu"))
+        self.assertFalse(should_forward(msg, "maipu", vista))
+
+    def test_grafo_de_comunas_es_cerrado_y_simetrico(self) -> None:
+        self.assertNotIn("ramon_freire", COMUNAS_ADYACENTES)
+        self.assertIn("san_ramon", COMUNAS_ADYACENTES)
+        self.assertNotIn("providencia", COMUNAS_ADYACENTES["la_reina"])
+        for comuna, vecinos in COMUNAS_ADYACENTES.items():
+            for vecino in vecinos:
+                with self.subTest(comuna=comuna, vecino=vecino):
+                    self.assertIn(vecino, COMUNAS_ADYACENTES)
+                    self.assertIn(comuna, COMUNAS_ADYACENTES[vecino])
 
     def test_pubsub_componente_y_deduplicacion(self) -> None:
         vista = MembershipView(
@@ -791,10 +828,11 @@ class PubSubTests(unittest.TestCase):
         )
         rec = RecordingTransport("127.0.0.1:7001")
         transport = cast(Transport, rec)
-        pubsub = PubSub(vista, transport)
+        pubsub = PubSub(vista, transport, POLITICAS_PUBSUB)
 
         recibidos: list[dict] = []
         pubsub.subscribe("santiago")
+        self.assertEqual(vista.topics_de(vista.yo), ["santiago"])
         pubsub.agregar_callback(lambda m: recibidos.append(m))
 
         # Publicar localmente
@@ -802,6 +840,10 @@ class PubSubTests(unittest.TestCase):
         self.assertIsNotNone(msg_id)
         self.assertEqual(len(recibidos), 1)
         self.assertEqual(recibidos[0]["content"], {"pm25": 12.5})
+        self.assertEqual(
+            (recibidos[0]["ttl"], recibidos[0]["priority"]),
+            (5, 2),
+        )
 
         # Recibir sobre duplicado
         sobre_duplicado: Sobre = {
@@ -822,6 +864,9 @@ class PubSubTests(unittest.TestCase):
         # No se debe procesar de nuevo por la deduplicación
         self.assertEqual(len(recibidos), 1)
 
+        pubsub.unsubscribe("santiago")
+        self.assertEqual(vista.topics_de(vista.yo), [])
+
     def test_pubsub_fanout_seleccion_aleatoria(self) -> None:
         vista = MembershipView(
             "127.0.0.1:7001",
@@ -829,23 +874,74 @@ class PubSubTests(unittest.TestCase):
             t_suspect=10,
             t_dead=20,
         )
-        vista.contacto_directo("127.0.0.1:7002", 1, [], 100.0)
-        vista.contacto_directo("127.0.0.1:7003", 1, [], 100.0)
-        vista.contacto_directo("127.0.0.1:7004", 1, [], 100.0)
+        vista.contacto_directo("127.0.0.1:7002", 1, ["santiago"], 100.0)
+        vista.contacto_directo("127.0.0.1:7003", 1, ["santiago"], 100.0)
+        vista.contacto_directo("127.0.0.1:7004", 1, ["santiago"], 100.0)
 
         rec = RecordingTransport("127.0.0.1:7001")
         transport = cast(Transport, rec)
         # Configurar fanout=1 y rng determinista
         rng = random.Random(42)
-        pubsub = PubSub(vista, transport, fanout=1, rng=rng)
+        pubsub = PubSub(
+            vista,
+            transport,
+            POLITICAS_PUBSUB,
+            fanout=1,
+            rng=rng,
+        )
 
         pubsub.publish("santiago", "alerta", channel="objetivo")
+        pubsub.tick(100.0)
         self.assertEqual(len(rec.sent), 1)
         # Debe enviar solo a 1 destinatario debido al fanout
         destinatario = rec.sent[0][0]
         self.assertIn(
             destinatario, ["127.0.0.1:7002", "127.0.0.1:7003", "127.0.0.1:7004"]
         )
+
+    def test_ttl_y_prioridad_configurados_por_canal(self) -> None:
+        vista = MembershipView(
+            "127.0.0.1:7001",
+            ["127.0.0.1:7002"],
+            t_suspect=10,
+            t_dead=20,
+        )
+        vista.contacto_directo("127.0.0.1:7002", 1, ["santiago"], 100.0)
+        rec = RecordingTransport("127.0.0.1:7001")
+        pubsub = PubSub(vista, cast(Transport, rec), POLITICAS_PUBSUB)
+
+        pubsub.publish("santiago", "opinión", channel="subjetivo")
+        pubsub.publish("santiago", "hecho", channel="objetivo")
+        pubsub.tick(100.0)
+
+        payloads = [sobre["payload"] for _destino, sobre in rec.sent]
+        self.assertEqual(
+            [payload["channel"] for payload in payloads],
+            ["objetivo", "subjetivo"],
+        )
+        self.assertEqual(
+            [(payload["ttl"], payload["priority"]) for payload in payloads],
+            [(4, 2), (2, 1)],
+        )
+
+    def test_poda_de_vistos_conserva_los_ids_mas_recientes(self) -> None:
+        vista = MembershipView(
+            "127.0.0.1:7001",
+            [],
+            t_suspect=10,
+            t_dead=20,
+        )
+        rec = RecordingTransport("127.0.0.1:7001")
+        pubsub = PubSub(vista, cast(Transport, rec), POLITICAS_PUBSUB)
+        for indice in range(10_001):
+            pubsub._recordar(f"msg-{indice}")
+
+        pubsub.tick(100.0)
+
+        self.assertEqual(len(pubsub._vistos), 5_000)
+        self.assertNotIn("msg-5000", pubsub._vistos)
+        self.assertIn("msg-5001", pubsub._vistos)
+        self.assertIn("msg-10000", pubsub._vistos)
 
 
 if __name__ == "__main__":

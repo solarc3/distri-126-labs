@@ -31,9 +31,16 @@ Gossip elige uniformemente hasta `fanout` peers entre los estados `unknown`,
 excluyen para no gastar rondas en endpoints cuyo timeout ya vencio; un proceso
 que reinicia puede volver a `alive` al contactar directamente a un peer activo.
 
-La futura capa pub/sub debe obtener destinos mediante `MembershipView.vivos()`.
-Asi, el trafico de aplicacion solo se envia a peers confirmados como `alive` y
-no depende de la estructura interna `PeerState`.
+La capa pub/sub obtiene destinos mediante `MembershipView.vivos()` y consulta
+sus tópicos con `MembershipView.topics_de()`. Asi, el trafico de aplicacion solo
+se envia a peers confirmados como `alive` sin duplicar las suscripciones fuera
+de la vista.
+
+Los TTL y prioridades iniciales de los canales `objetivo` y `subjetivo` se
+definen en la sección `pubsub.channels` de `config.example.yaml`. Los reenvíos
+pendientes se despachan de mayor a menor prioridad. El grafo simétrico de
+adyacencia usado para filtrar destinos está versionado en
+`civicmesh/comunas_rm.yaml`.
 
 ## Verificacion
 

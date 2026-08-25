@@ -1,11 +1,14 @@
 """Módulo Pub/Sub para la diseminación de mensajes con enrutamiento inteligente."""
 
+import heapq
 import logging
 import random
 import time
-from collections.abc import Callable, Sequence
+from collections import OrderedDict
+from collections.abc import Callable
 from typing import Any, Literal, TypeAlias, TypedDict, cast
 
+from civicmesh.comunas import normalizar_tópico, obtener_comunas_interes
 from civicmesh.membership.view import MembershipView, RandomSource
 from civicmesh.protocol import JsonValue, PeerId, ProtocolError, Sobre
 from civicmesh.transport import EndpointError, Transport, parse_endpoint
@@ -14,68 +17,20 @@ logger = logging.getLogger(__name__)
 
 CanalPubSub: TypeAlias = Literal["objetivo", "subjetivo"]
 CallbackMensaje: TypeAlias = Callable[[dict[str, Any]], None]
+EnvioPendiente: TypeAlias = tuple[int, int, PeerId, Sobre]
 
-# Mapa estático de adyacencia geográfica de comunas para la región metropolitana
-COMUNAS_ADYACENTES: dict[str, set[str]] = {
-    "santiago": {
-        "providencia",
-        "recoleta",
-        "independencia",
-        "quinta_normal",
-        "estacion_central",
-        "san_miguel",
-        "pedro_aguirre_cerda",
-        "nunoa",
-    },
-    "providencia": {"santiago", "las_condes", "vitacura", "nunoa", "recoleta"},
-    "las_condes": {"providencia", "vitacura", "lo_barnechea", "la_reina"},
-    "vitacura": {"providencia", "las_condes", "lo_barnechea", "huechuraba"},
-    "nunoa": {"santiago", "providencia", "la_reina", "macul", "san_joaquin"},
-    "recoleta": {
-        "santiago",
-        "providencia",
-        "huechuraba",
-        "conchali",
-        "independencia",
-    },
-    "independencia": {"santiago", "recoleta", "conchali", "quinta_normal"},
-    "quinta_normal": {
-        "santiago",
-        "pudahuel",
-        "renca",
-        "estacion_central",
-        "independencia",
-    },
-    "estacion_central": {
-        "santiago",
-        "quinta_normal",
-        "pudahuel",
-        "maipu",
-        "cerrillos",
-        "pedro_aguirre_cerda",
-    },
-    "san_miguel": {
-        "santiago",
-        "pedro_aguirre_cerda",
-        "san_joaquin",
-        "la_cisterna",
-        "ramon_freire",
-    },
-    "macul": {"nunoa", "la_reina", "penalolen", "san_joaquin", "la_florida"},
-    "la_reina": {"las_condes", "providencia", "nunoa", "macul", "penalolen"},
-}
+MAX_MENSAJES_VISTOS = 10_000
+MENSAJES_VISTOS_RETENIDOS = 5_000
 
 
-def normalizar_tópico(tópico: str) -> str:
-    """Normaliza un tópico/comuna a minúsculas y sin espacios adicionales."""
-    return tópico.strip().lower()
+class PoliticaCanal(TypedDict):
+    ttl: int
+    priority: int
 
 
-def obtener_comunas_interes(tópico: str) -> set[str]:
-    """Devuelve el tópico normalizado y sus comunas geográficamente adyacentes."""
-    norm = normalizar_tópico(tópico)
-    adyacentes = COMUNAS_ADYACENTES.get(norm, set())
-    return {norm} | set(adyacentes)
+class PoliticasCanales(TypedDict):
+    objetivo: PoliticaCanal
+    subjetivo: PoliticaCanal
 
 
 class PubSubPayload(TypedDict):
@@ -135,93 +90,71 @@ def validar_payload_pubsub(sobre: Sobre) -> PubSubPayload:
     return cast(PubSubPayload, payload)
 
 
-class SubscriptionManager:
-    """Gestiona las suscripciones de los peers a comunas o regiones."""
-
-    def __init__(self) -> None:
-        # Mapea peer_id -> set de tópicos normalizados a los que está suscrito
-        self._suscripciones_peers: dict[str, set[str]] = {}
-        # Suscripciones del nodo local
-        self._suscripciones_locales: set[str] = set()
-
-    def suscribir_local(self, tópico: str) -> None:
-        self._suscripciones_locales.add(normalizar_tópico(tópico))
-
-    def desuscribir_local(self, tópico: str) -> None:
-        self._suscripciones_locales.discard(normalizar_tópico(tópico))
-
-    def es_suscrito_local(self, tópico: str) -> bool:
-        norm = normalizar_tópico(tópico)
-        comunas_interes = obtener_comunas_interes(norm)
-        return bool(self._suscripciones_locales & comunas_interes)
-
-    def registrar_suscripcion_peer(self, peer_id: str, tópicos: Sequence[str]) -> None:
-        self._suscripciones_peers[peer_id] = {normalizar_tópico(t) for t in tópicos}
-
-    def remover_peer(self, peer_id: str) -> None:
-        self._suscripciones_peers.pop(peer_id, None)
-
-    def esta_interesado_peer(self, peer_id: str, tópico: str) -> bool:
-        """Indica si un peer está interesado en un tópico o en comunas vecinas."""
-        suscripciones = self._suscripciones_peers.get(peer_id)
-        if suscripciones is None:
-            # Si no hay registro explícito, por defecto asumimos interés potencial
-            return True
-
-        interes = obtener_comunas_interes(tópico)
-        return bool(suscripciones & interes)
-
-    def hay_interesados(self, peers_vivos: Sequence[str], tópico: str) -> bool:
-        """Determina si al menos un peer vivo de la lista está interesado."""
-        if not peers_vivos:
-            return False
-
-        return any(self.esta_interesado_peer(pid, tópico) for pid in peers_vivos)
+def _peer_interesado(
+    local_view: MembershipView,
+    peer_id: PeerId,
+    topic: str,
+) -> bool:
+    comunas_interes = obtener_comunas_interes(topic)
+    suscripciones = {
+        normalizar_tópico(suscripcion)
+        for suscripcion in local_view.topics_de(peer_id)
+    }
+    return bool(suscripciones & comunas_interes)
 
 
 def should_forward(
     msg: dict[str, Any],
     topic: str,
-    local_view: MembershipView | Sequence[str] | dict[str, Any],
-    subscriptions: SubscriptionManager | None = None,
+    local_view: MembershipView,
 ) -> bool:
-    """Evalúa si un mensaje Pub/Sub debe ser reenviado según su TTL e interés.
-
-    Evita el flooding ciego verificando:
-    1. Que el mensaje no haya expirado (TTL > 0).
-    2. Que la prioridad sea válida (>= 1).
-    3. Que existan peers activos en la vista local verdaderamente interesados.
-    """
+    """Indica si queda TTL y existe algún peer vivo interesado."""
     ttl = msg.get("ttl")
-    if ttl is None or isinstance(ttl, bool) or not isinstance(ttl, int) or ttl <= 0:
+    if isinstance(ttl, bool) or not isinstance(ttl, int) or ttl <= 0:
         return False
 
-    priority = msg.get("priority", 1)
+    priority = msg.get("priority")
     if isinstance(priority, bool) or not isinstance(priority, int) or priority < 1:
         return False
 
-    # Extraer peers vivos de la vista local
-    if isinstance(local_view, MembershipView):
-        peers_vivos = local_view.vivos()
-    elif isinstance(local_view, dict):
-        # Si es un dict de estados o digest
-        peers_vivos = [
-            pid
-            for pid, info in local_view.items()
-            if (isinstance(info, dict) and info.get("estado") == "alive")
-            or not isinstance(info, dict)
-        ]
-    else:
-        peers_vivos = list(local_view)
+    return any(
+        _peer_interesado(local_view, peer_id, topic)
+        for peer_id in local_view.vivos()
+    )
 
-    if not peers_vivos:
-        return False
 
-    # Si hay gestor de suscripciones, comprobar que algún peer vivo esté interesado
-    if subscriptions is not None:
-        return subscriptions.hay_interesados(peers_vivos, topic)
+def _validar_politica(canal: CanalPubSub, politica: PoliticaCanal) -> None:
+    ttl = politica["ttl"]
+    priority = politica["priority"]
+    if isinstance(ttl, bool) or not isinstance(ttl, int) or ttl <= 0:
+        raise ValueError(f"el TTL de {canal} debe ser un entero positivo")
+    if (
+        isinstance(priority, bool)
+        or not isinstance(priority, int)
+        or priority <= 0
+    ):
+        raise ValueError(f"la prioridad de {canal} debe ser un entero positivo")
 
-    return True
+
+def _copiar_politicas(politicas: PoliticasCanales) -> PoliticasCanales:
+    copia: PoliticasCanales = {
+        "objetivo": {
+            "ttl": politicas["objetivo"]["ttl"],
+            "priority": politicas["objetivo"]["priority"],
+        },
+        "subjetivo": {
+            "ttl": politicas["subjetivo"]["ttl"],
+            "priority": politicas["subjetivo"]["priority"],
+        },
+    }
+    _validar_politica("objetivo", copia["objetivo"])
+    _validar_politica("subjetivo", copia["subjetivo"])
+
+    if copia["objetivo"]["ttl"] == copia["subjetivo"]["ttl"]:
+        raise ValueError("los canales deben tener TTL distintos")
+    if copia["objetivo"]["priority"] == copia["subjetivo"]["priority"]:
+        raise ValueError("los canales deben tener prioridades distintas")
+    return copia
 
 
 class PubSub:
@@ -231,7 +164,7 @@ class PubSub:
         self,
         vista: MembershipView,
         transport: Transport,
-        subscriptions: SubscriptionManager | None = None,
+        politicas: PoliticasCanales,
         fanout: int | None = None,
         rng: RandomSource | None = None,
         clock: Callable[[], float] = time.monotonic,
@@ -243,28 +176,36 @@ class PubSub:
 
         self._vista = vista
         self._transport = transport
-        self._subscriptions = subscriptions or SubscriptionManager()
+        self._politicas = _copiar_politicas(politicas)
         self._fanout = fanout
         self._rng = rng or random.Random()
         self._clock = clock
 
-        self._vistos: set[str] = set()
+        self._vistos: OrderedDict[str, None] = OrderedDict()
+        self._pendientes: list[EnvioPendiente] = []
+        self._secuencia_envio = 0
         self._callbacks: list[CallbackMensaje] = []
         self._secuencia_local = 0
         self._mensajes_recibidos: list[PubSubPayload] = []
 
-    @property
-    def subscriptions(self) -> SubscriptionManager:
-        return self._subscriptions
-
-    def suscribir(self, topic: str) -> None:
-        self._subscriptions.suscribir_local(topic)
-
     def subscribe(self, topic: str) -> None:
-        self._subscriptions.suscribir_local(topic)
+        normalizado = normalizar_tópico(topic)
+        topics = self._vista.topics_de(self._vista.yo)
+        if all(
+            normalizar_tópico(suscripcion) != normalizado
+            for suscripcion in topics
+        ):
+            topics.append(normalizado)
+            self._vista.set_topics(topics)
 
     def unsubscribe(self, topic: str) -> None:
-        self._subscriptions.desuscribir_local(topic)
+        normalizado = normalizar_tópico(topic)
+        topics = [
+            suscripcion
+            for suscripcion in self._vista.topics_de(self._vista.yo)
+            if normalizar_tópico(suscripcion) != normalizado
+        ]
+        self._vista.set_topics(topics)
 
     def agregar_callback(self, callback: CallbackMensaje) -> None:
         self._callbacks.append(callback)
@@ -274,10 +215,9 @@ class PubSub:
         topic: str,
         content: JsonValue,
         channel: CanalPubSub = "objetivo",
-        priority: int = 1,
-        ttl: int = 5,
     ) -> str:
-        """Publica un nuevo mensaje Pub/Sub desde el nodo local."""
+        """Publica usando el TTL y la prioridad configurados para el canal."""
+        politica = self._politicas[channel]
         self._secuencia_local += 1
         ts = int(self._clock())
         msg_id = f"{self._transport.peer_id}:{ts}:{self._secuencia_local}"
@@ -287,18 +227,16 @@ class PubSub:
             "topic": topic,
             "channel": channel,
             "content": content,
-            "ttl": ttl,
-            "priority": priority,
+            "ttl": politica["ttl"],
+            "priority": politica["priority"],
             "origin": self._transport.peer_id,
         }
 
-        self._vistos.add(msg_id)
+        self._recordar(msg_id)
 
-        # Si el propio nodo está suscrito, se procesa localmente
-        if self._subscriptions.es_suscrito_local(topic):
+        if _peer_interesado(self._vista, self._vista.yo, topic):
             self._procesar_entrega_local(payload)
 
-        # Reenviar a peers activos si corresponde según should_forward
         self._difundir(payload, remitente_original=self._transport.peer_id)
         return msg_id
 
@@ -307,33 +245,45 @@ class PubSub:
             raise ProtocolError("PubSub solo procesa sobres de tipo pubsub")
 
         payload = validar_payload_pubsub(sobre)
-        msg_id = payload["id"]
-
-        if msg_id in self._vistos:
-            logger.debug("mensaje pubsub duplicado omitido: %s", msg_id)
+        if not self._recordar(payload["id"]):
+            logger.debug("mensaje pubsub duplicado omitido: %s", payload["id"])
             return
 
-        self._vistos.add(msg_id)
-
-        # Entrega local si hay interés
-        if self._subscriptions.es_suscrito_local(payload["topic"]):
+        if _peer_interesado(self._vista, self._vista.yo, payload["topic"]):
             self._procesar_entrega_local(payload)
 
-        # Reenviar si no ha expirado y debe reenviarse
         self._difundir(payload, remitente_original=sobre["from"])
 
     def tick(self, _now: float) -> None:
-        """Tick del componente PubSub."""
-        # Mantener el tamaño del conjunto de vistos acotado
-        if len(self._vistos) > 10000:
-            # Retener los últimos elementos
-            self._vistos = set(list(self._vistos)[-5000:])
+        """Poda IDs antiguos y despacha reenvíos por prioridad."""
+        if len(self._vistos) > MAX_MENSAJES_VISTOS:
+            while len(self._vistos) > MENSAJES_VISTOS_RETENIDOS:
+                self._vistos.popitem(last=False)
+
+        while self._pendientes:
+            _prioridad, _secuencia, objetivo, sobre = heapq.heappop(
+                self._pendientes
+            )
+            try:
+                self._transport.send(objetivo, sobre)
+            except (EndpointError, OSError) as error:
+                logger.warning(
+                    "no se pudo enviar pubsub a %s: %s",
+                    objetivo,
+                    error,
+                )
+
+    def _recordar(self, msg_id: str) -> bool:
+        if msg_id in self._vistos:
+            return False
+        self._vistos[msg_id] = None
+        return True
 
     def _procesar_entrega_local(self, payload: PubSubPayload) -> None:
         self._mensajes_recibidos.append(payload)
-        for cb in self._callbacks:
+        for callback in self._callbacks:
             try:
-                cb(cast(dict[str, Any], payload))
+                callback(cast(dict[str, Any], payload))
             except Exception:
                 logger.exception("error en callback local de PubSub")
 
@@ -344,17 +294,11 @@ class PubSub:
     ) -> None:
         ttl = payload["ttl"]
         if ttl <= 1:
-            return  # Al decrementar a 0 expiraría
+            return
 
         payload_forward = dict(payload)
         payload_forward["ttl"] = ttl - 1
-
-        if not should_forward(
-            payload_forward,
-            payload["topic"],
-            self._vista,
-            self._subscriptions,
-        ):
+        if not should_forward(payload_forward, payload["topic"], self._vista):
             return
 
         sobre = cast(
@@ -365,22 +309,25 @@ class PubSub:
                 "payload": payload_forward,
             },
         )
-
         destinatarios = [
-            pid
-            for pid in self._vista.vivos()
-            if pid != remitente_original and pid != payload["origin"]
+            peer_id
+            for peer_id in self._vista.vivos()
+            if peer_id != remitente_original
+            and peer_id != payload["origin"]
+            and _peer_interesado(self._vista, peer_id, payload["topic"])
         ]
 
         if self._fanout is not None and len(destinatarios) > self._fanout:
             destinatarios = self._rng.sample(destinatarios, self._fanout)
 
         for objetivo in destinatarios:
-            try:
-                self._transport.send(objetivo, sobre)
-            except (EndpointError, OSError) as error:
-                logger.warning(
-                    "no se pudo enviar pubsub a %s: %s",
+            self._secuencia_envio += 1
+            heapq.heappush(
+                self._pendientes,
+                (
+                    -payload["priority"],
+                    self._secuencia_envio,
                     objetivo,
-                    error,
-                )
+                    sobre,
+                ),
+            )
