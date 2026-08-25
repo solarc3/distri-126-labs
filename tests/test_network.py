@@ -16,6 +16,7 @@ from civicmesh.protocol import (
     codificar_sobre,
     decodificar_sobre,
 )
+from civicmesh.pubsub import PubSub, SubscriptionManager, should_forward
 from civicmesh.transport import Transport
 
 
@@ -454,8 +455,140 @@ class IntegrationTests(unittest.TestCase):
                 node.stop()
             for thread in threads:
                 thread.join(timeout=1.0)
-            for transport in transports:
-                transport.close()
+
+
+class PubSubTests(unittest.TestCase):
+    def test_should_forward_bloquea_mensajes_expirados(self) -> None:
+        vista = MembershipView(
+            "127.0.0.1:7001",
+            ["127.0.0.1:7002"],
+            t_suspect=10,
+            t_dead=20,
+        )
+        vista.contacto_directo("127.0.0.1:7002", 1, 100.0)
+
+        # TTL = 0 (expirado)
+        msg_expirado = {
+            "id": "msg-1",
+            "topic": "santiago",
+            "channel": "objetivo",
+            "content": "calidad_aire: mala",
+            "ttl": 0,
+            "priority": 1,
+            "origin": "127.0.0.1:7001",
+        }
+        self.assertFalse(should_forward(msg_expirado, "santiago", vista))
+
+        # TTL < 0
+        msg_negativo = dict(msg_expirado)
+        msg_negativo["ttl"] = -1
+        self.assertFalse(should_forward(msg_negativo, "santiago", vista))
+
+        # TTL valido (> 0)
+        msg_valido = dict(msg_expirado)
+        msg_valido["ttl"] = 3
+        self.assertTrue(should_forward(msg_valido, "santiago", vista))
+
+    def test_should_forward_valida_prioridad(self) -> None:
+        vista = MembershipView(
+            "127.0.0.1:7001",
+            ["127.0.0.1:7002"],
+            t_suspect=10,
+            t_dead=20,
+        )
+        vista.contacto_directo("127.0.0.1:7002", 1, 100.0)
+
+        msg_prioridad_invalida = {
+            "id": "msg-2",
+            "topic": "santiago",
+            "channel": "subjetivo",
+            "content": "alerta",
+            "ttl": 2,
+            "priority": 0,
+            "origin": "127.0.0.1:7001",
+        }
+        self.assertFalse(should_forward(msg_prioridad_invalida, "santiago", vista))
+
+    def test_should_forward_evita_flooding_sin_interesados_o_peers_vivos(self) -> None:
+        vista = MembershipView(
+            "127.0.0.1:7001",
+            ["127.0.0.1:7002"],
+            t_suspect=10,
+            t_dead=20,
+        )
+
+        msg = {
+            "id": "msg-3",
+            "topic": "santiago",
+            "channel": "objetivo",
+            "content": "ok",
+            "ttl": 2,
+            "priority": 1,
+            "origin": "127.0.0.1:7001",
+        }
+
+        # Sin peers vivos en la vista local -> False
+        self.assertFalse(should_forward(msg, "santiago", vista))
+
+        # Peer vivo pero sin interés registrado en suscripciones -> False
+        vista.contacto_directo("127.0.0.1:7002", 1, 100.0)
+        subs = SubscriptionManager()
+        subs.registrar_suscripcion_peer("127.0.0.1:7002", ["las_condes"])
+        self.assertFalse(should_forward(msg, "santiago", vista, subs))
+
+        # Con suscripción coincidente -> True
+        subs.registrar_suscripcion_peer("127.0.0.1:7002", ["santiago"])
+        self.assertTrue(should_forward(msg, "santiago", vista, subs))
+
+    def test_adyacencia_espacial_en_suscripciones(self) -> None:
+        subs = SubscriptionManager()
+        # Peer 2 suscrito a Providencia (adyacente a Santiago)
+        subs.registrar_suscripcion_peer("127.0.0.1:7002", ["providencia"])
+
+        # Mensaje publicado en Santiago debe ser de interés para Providencia
+        self.assertTrue(subs.esta_interesado_peer("127.0.0.1:7002", "santiago"))
+        # Mensaje publicado en Maipú NO es adyacente a Providencia directamente
+        self.assertFalse(subs.esta_interesado_peer("127.0.0.1:7002", "maipu"))
+
+    def test_pubsub_componente_y_deduplicacion(self) -> None:
+        vista = MembershipView(
+            "127.0.0.1:7001",
+            ["127.0.0.1:7002"],
+            t_suspect=10,
+            t_dead=20,
+        )
+        rec = RecordingTransport("127.0.0.1:7001")
+        transport = cast(Transport, rec)
+        pubsub = PubSub(vista, transport)
+
+        recibidos: list[dict] = []
+        pubsub.subscribe("santiago")
+        pubsub.agregar_callback(lambda m: recibidos.append(m))
+
+        # Publicar localmente
+        msg_id = pubsub.publish("santiago", {"pm25": 12.5}, channel="objetivo")
+        self.assertIsNotNone(msg_id)
+        self.assertEqual(len(recibidos), 1)
+        self.assertEqual(recibidos[0]["content"], {"pm25": 12.5})
+
+        # Recibir sobre duplicado
+        sobre_duplicado: Sobre = {
+            "tipo": "pubsub",
+            "from": "127.0.0.1:7002",
+            "payload": {
+                "id": msg_id,
+                "topic": "santiago",
+                "channel": "objetivo",
+                "content": {"pm25": 12.5},
+                "ttl": 3,
+                "priority": 1,
+                "origin": "127.0.0.1:7001",
+            },
+        }
+
+        pubsub.handle(sobre_duplicado)
+        # No se debe procesar de nuevo por la deduplicación
+        self.assertEqual(len(recibidos), 1)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ import yaml
 from civicmesh.membership.gossip import Gossip
 from civicmesh.membership.view import MembershipView
 from civicmesh.protocol import PeerId
+from civicmesh.pubsub import PubSub
 from civicmesh.transport import Endpoint, EndpointError, Transport, parse_endpoint
 
 logger = logging.getLogger(__name__)
@@ -220,10 +221,12 @@ def build_node(config: NodeConfig) -> Node:
         fanout=config.gossip_fanout,
         interval=config.gossip_interval,
     )
+    pubsub = PubSub(vista, transport)
     transport.register_handler("gossip", gossip.handle)
+    transport.register_handler("pubsub", pubsub.handle)
     return Node(
         transport,
-        [gossip],
+        [gossip, pubsub],
         loop_interval=config.loop_interval,
     )
 
