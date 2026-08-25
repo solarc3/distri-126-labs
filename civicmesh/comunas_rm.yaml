@@ -1,0 +1,107 @@
+santiago:
+  - estacion_central
+  - independencia
+  - nunoa
+  - pedro_aguirre_cerda
+  - providencia
+  - quinta_normal
+  - recoleta
+  - san_miguel
+providencia:
+  - las_condes
+  - nunoa
+  - recoleta
+  - santiago
+  - vitacura
+las_condes:
+  - la_reina
+  - lo_barnechea
+  - providencia
+  - vitacura
+vitacura:
+  - huechuraba
+  - las_condes
+  - lo_barnechea
+  - providencia
+nunoa:
+  - la_reina
+  - macul
+  - providencia
+  - san_joaquin
+  - santiago
+recoleta:
+  - conchali
+  - huechuraba
+  - independencia
+  - providencia
+  - santiago
+independencia:
+  - conchali
+  - quinta_normal
+  - recoleta
+  - santiago
+quinta_normal:
+  - estacion_central
+  - independencia
+  - pudahuel
+  - renca
+  - santiago
+estacion_central:
+  - cerrillos
+  - maipu
+  - pedro_aguirre_cerda
+  - pudahuel
+  - quinta_normal
+  - santiago
+san_miguel:
+  - la_cisterna
+  - pedro_aguirre_cerda
+  - san_joaquin
+  - san_ramon
+  - santiago
+macul:
+  - la_florida
+  - la_reina
+  - nunoa
+  - penalolen
+  - san_joaquin
+la_reina:
+  - las_condes
+  - macul
+  - nunoa
+  - penalolen
+pedro_aguirre_cerda:
+  - estacion_central
+  - san_miguel
+  - santiago
+lo_barnechea:
+  - las_condes
+  - vitacura
+huechuraba:
+  - recoleta
+  - vitacura
+san_joaquin:
+  - macul
+  - nunoa
+  - san_miguel
+conchali:
+  - independencia
+  - recoleta
+pudahuel:
+  - estacion_central
+  - quinta_normal
+renca:
+  - quinta_normal
+maipu:
+  - estacion_central
+cerrillos:
+  - estacion_central
+la_cisterna:
+  - san_miguel
+san_ramon:
+  - san_miguel
+penalolen:
+  - la_reina
+  - macul
+la_florida:
+  - macul

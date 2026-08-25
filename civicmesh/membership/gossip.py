@@ -3,7 +3,7 @@ import time
 from collections.abc import Callable
 from typing import TypeAlias, TypedDict, cast
 
-from civicmesh.membership.view import MembershipView, RandomSource
+from civicmesh.membership.view import DigestState, MembershipView, RandomSource
 from civicmesh.protocol import ProtocolError, Sobre
 from civicmesh.transport import EndpointError, Transport, parse_endpoint
 
@@ -14,12 +14,20 @@ Clock: TypeAlias = Callable[[], float]
 
 class GossipPayload(TypedDict):
     heartbeat: int
-    peers: dict[str, int]
+    topics: list[str]
+    peers: dict[str, DigestState]
+
+
+def _validar_topics(valor: object, ruta: str) -> None:
+    if not isinstance(valor, list) or not all(
+        isinstance(topic, str) for topic in valor
+    ):
+        raise ProtocolError(f"{ruta} debe ser una lista de textos")
 
 
 def _validar_payload_gossip(sobre: Sobre) -> GossipPayload:
     payload = sobre["payload"]
-    campos_requeridos = {"heartbeat", "peers"}
+    campos_requeridos = {"heartbeat", "topics", "peers"}
     if not campos_requeridos.issubset(payload):
         raise ProtocolError("faltan campos obligatorios en el payload de gossip")
 
@@ -27,22 +35,31 @@ def _validar_payload_gossip(sobre: Sobre) -> GossipPayload:
     if isinstance(heartbeat, bool) or not isinstance(heartbeat, int) or heartbeat < 0:
         raise ProtocolError("heartbeat debe ser un entero no negativo")
 
+    _validar_topics(payload["topics"], "topics")
+
     peers = payload["peers"]
     if not isinstance(peers, dict):
         raise ProtocolError("peers debe ser un objeto JSON")
 
-    for peer_id, peer_heartbeat in peers.items():
+    for peer_id, estado_peer in peers.items():
+        if not isinstance(peer_id, str):
+            raise ProtocolError("los peer ID del digest deben ser textos")
         try:
             parse_endpoint(peer_id)
         except EndpointError as error:
             raise ProtocolError(f"peer ID invalido en digest: {peer_id}") from error
 
-        if (
-            isinstance(peer_heartbeat, bool)
-            or not isinstance(peer_heartbeat, int)
-            or peer_heartbeat < 0
-        ):
+        if not isinstance(estado_peer, dict):
+            raise ProtocolError(f"estado invalido para peer {peer_id}")
+        if not {"heartbeat", "topics"}.issubset(estado_peer):
+            raise ProtocolError(f"faltan campos para peer {peer_id}")
+
+        peer_heartbeat = estado_peer["heartbeat"]
+        if isinstance(peer_heartbeat, bool) or not isinstance(peer_heartbeat, int):
             raise ProtocolError(f"heartbeat invalido para peer {peer_id}")
+        if peer_heartbeat < 0:
+            raise ProtocolError(f"heartbeat invalido para peer {peer_id}")
+        _validar_topics(estado_peer["topics"], f"topics de peer {peer_id}")
 
     return cast(GossipPayload, payload)
 
@@ -83,6 +100,7 @@ class Gossip:
         self._vista.contacto_directo(
             sobre["from"],
             payload["heartbeat"],
+            payload["topics"],
             self._clock(),
         )
         self._vista.merge_digest(payload["peers"])
@@ -101,6 +119,7 @@ class Gossip:
                 "from": self._transport.peer_id,
                 "payload": {
                     "heartbeat": self._heartbeat,
+                    "topics": self._vista.topics_de(self._vista.yo),
                     "peers": self._vista.digest(),
                 },
             },

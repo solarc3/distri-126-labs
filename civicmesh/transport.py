@@ -81,6 +81,8 @@ class Transport:
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self._handlers: dict[TipoMensaje, Handler] = {}
         self._inbox: Queue[Sobre] = Queue(maxsize=1024)
+        self.blocked_peers: set[PeerId] = set()
+        self._endpoint_cache: dict[PeerId, frozenset[Endpoint]] = {}
 
         try:
             self._sock.bind(bind)
@@ -109,6 +111,8 @@ class Transport:
         data = codificar_sobre(sobre)
         if sobre["from"] != self.peer_id:
             raise ValueError("el remitente del sobre no coincide con el transporte")
+        if peer_id in self.blocked_peers:
+            return
 
         destino = parse_endpoint(peer_id)
         self._sock.sendto(data, destino)
@@ -173,9 +177,15 @@ class Transport:
                 logger.warning("datagrama descartado: %s", error)
                 continue
 
+            if sobre["from"] in self.blocked_peers:
+                continue
+
             observado: Endpoint = (addr[0], addr[1])
             try:
-                esperados = resolve_endpoints(sobre["from"])
+                esperados = self._endpoint_cache.get(sobre["from"])
+                if esperados is None:
+                    esperados = resolve_endpoints(sobre["from"])
+                    self._endpoint_cache[sobre["from"]] = esperados
             except EndpointError as error:
                 logger.warning("remitente descartado: %s", error)
                 continue

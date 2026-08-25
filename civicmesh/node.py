@@ -16,6 +16,7 @@ import yaml
 from civicmesh.membership.gossip import Gossip
 from civicmesh.membership.view import MembershipView
 from civicmesh.protocol import PeerId
+from civicmesh.pubsub import PoliticaCanal, PoliticasCanales, PubSub
 from civicmesh.transport import Endpoint, EndpointError, Transport, parse_endpoint
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ class NodeConfig:
     t_suspect: float
     t_dead: float
     random_seed: int
+    pubsub_policies: PoliticasCanales
     loop_interval: float
 
 
@@ -77,6 +79,21 @@ def _parse_config_endpoint(valor: object, ruta: str) -> tuple[str, Endpoint]:
     except EndpointError as error:
         raise ConfigError(f"{ruta}: {error}") from error
     return peer_id, endpoint
+
+
+def _parse_politica_canal(
+    valor: object,
+    canal: str,
+) -> PoliticaCanal:
+    ruta = f"pubsub.channels.{canal}"
+    politica = _mapping(valor, ruta)
+    ttl = _integer(politica.get("ttl"), f"{ruta}.ttl")
+    priority = _integer(politica.get("priority"), f"{ruta}.priority")
+    if ttl <= 0:
+        raise ConfigError(f"{ruta}.ttl debe ser positivo")
+    if priority <= 0:
+        raise ConfigError(f"{ruta}.priority debe ser positivo")
+    return {"ttl": ttl, "priority": priority}
 
 
 def load_config(path: Path, peer_name: str) -> NodeConfig:
@@ -144,6 +161,26 @@ def load_config(path: Path, peer_name: str) -> NodeConfig:
     if t_suspect <= 0 or t_dead <= t_suspect:
         raise ConfigError("los timeouts deben cumplir 0 < suspect_after < dead_after")
 
+    pubsub = _mapping(root.get("pubsub"), "pubsub")
+    channels = _mapping(pubsub.get("channels"), "pubsub.channels")
+    pubsub_policies: PoliticasCanales = {
+        "objetivo": _parse_politica_canal(
+            channels.get("objetivo"),
+            "objetivo",
+        ),
+        "subjetivo": _parse_politica_canal(
+            channels.get("subjetivo"),
+            "subjetivo",
+        ),
+    }
+    if pubsub_policies["objetivo"]["ttl"] == pubsub_policies["subjetivo"]["ttl"]:
+        raise ConfigError("los canales pubsub deben tener TTL distintos")
+    if (
+        pubsub_policies["objetivo"]["priority"]
+        == pubsub_policies["subjetivo"]["priority"]
+    ):
+        raise ConfigError("los canales pubsub deben tener prioridades distintas")
+
     node = _mapping(root.get("node", {}), "node")
     loop_interval = _number(
         node.get("loop_interval_seconds", 0.05),
@@ -161,6 +198,7 @@ def load_config(path: Path, peer_name: str) -> NodeConfig:
         t_suspect=t_suspect,
         t_dead=t_dead,
         random_seed=random_seed,
+        pubsub_policies=pubsub_policies,
         loop_interval=loop_interval,
     )
 
@@ -213,17 +251,20 @@ def build_node(config: NodeConfig) -> Node:
         t_suspect=config.t_suspect,
         t_dead=config.t_dead,
     )
+    rng = random.Random(config.random_seed)
     gossip = Gossip(
         vista,
         transport,
-        random.Random(config.random_seed),
+        rng,
         fanout=config.gossip_fanout,
         interval=config.gossip_interval,
     )
+    pubsub = PubSub(vista, transport, config.pubsub_policies, rng=rng)
     transport.register_handler("gossip", gossip.handle)
+    transport.register_handler("pubsub", pubsub.handle)
     return Node(
         transport,
-        [gossip],
+        [gossip, pubsub],
         loop_interval=config.loop_interval,
     )
 
