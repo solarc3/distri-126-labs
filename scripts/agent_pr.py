@@ -3,12 +3,15 @@ import re
 import urllib.request
 
 
-def ask_ollama(prompt):
+def ask_ollama(system_prompt, user_prompt):
     """Función auxiliar para hacer peticiones a Ollama."""
     try:
         payload = json.dumps({
             "model": "llama3.2",
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
             "stream": False,
             "options": {"temperature": 0.0}
         }).encode('utf-8')
@@ -31,34 +34,7 @@ def ask_ollama(prompt):
 
 
 def analyze_diff(diff_text):
-    # Palabras clave críticas que requieren revisión humana
-    critical_keywords = [
-        "socket", "bind", "listen", "accept", "connect", 
-        "gossip", "pubsub", "MembershipView", "should_forward", 
-        "fanout", "TTL", "prioridad", "threading", "multiprocessing",
-        "asyncio"
-    ]
-    
-    is_critical = False
-    critical_reason = ""
-    
-    # 1. Heurística de seguridad (Búsqueda global)
-    for line in diff_text.split('\n'):
-        if line.startswith('+') and not line.startswith('+++'):
-            for kw in critical_keywords:
-                if re.search(rf'\b{kw}\b', line, re.IGNORECASE):
-                    is_critical = True
-                    critical_reason = (
-                        f"Se detectó modificación relacionada con '{kw}' "
-                        "en la lógica de red o concurrencia."
-                    )
-                    break
-        if is_critical:
-            break
-            
-    # 2. Análisis Iterativo del Diff por Archivos (Map-Reduce)
-    
-    # Separar el diff enorme en bloques por cada archivo modificado
+    # 1. Separar el diff enorme en bloques por cada archivo modificado
     file_diffs = []
     current_file_diff = []
     
@@ -73,48 +49,51 @@ def analyze_diff(diff_text):
     if current_file_diff:
         file_diffs.append('\n'.join(current_file_diff))
 
-    # A. Fase Map: Generar un mini-resumen por cada archivo
+    # 2. Fase Map: Generar un mini-resumen por cada archivo
     file_summaries = []
     for f_diff in file_diffs:
-        # Extraer nombre del archivo para pasarlo al prompt
         match = re.search(r'diff --git a/.*? b/(.*)', f_diff)
         filename = match.group(1) if match else "archivo_desconocido"
         
-        # Recortar el diff individual solo si es brutalmente largo (por ej. un JSON)
-        # 1500 chars suele ser suficiente para entender el contexto de UN archivo.
         safe_f_diff = f_diff[:1500] 
         
-        prompt = (
+        system_prompt = (
+            "You are a code analyzer. Summarize the changes in 1 Spanish sentence."
+        )
+        user_prompt = (
             f"El archivo '{filename}' fue modificado. "
-            "Revisa los cambios (líneas con +) y escribe EXACTAMENTE 1 sola "
-            "oración en español resumiendo qué se le hizo. Si son cambios estéticos "
-            "o de linter, dilo. No des explicaciones, solo la oración.\n\n"
+            "Revisa los cambios y escribe EXACTAMENTE 1 sola "
+            "oración en español resumiendo qué se le hizo. Si son cambios "
+            "estéticos o de linter, dilo. No des explicaciones.\n\n"
             f"{safe_f_diff}"
         )
         print(f"-> Analizando {filename}...")
-        summary = ask_ollama(prompt)
+        summary = ask_ollama(system_prompt, user_prompt)
         if summary:
             file_summaries.append(f"- {filename}: {summary}")
             
-    # B. Fase Reduce: Consolidar todos los resúmenes en un párrafo final
+    # 3. Fase Reduce: Consolidar todos los resúmenes en un párrafo final
     ai_summary = ""
     if file_summaries:
         consolidated_text = "\n".join(file_summaries)
-        reduce_prompt = (
-            "Eres un Technical Lead. Tienes el siguiente reporte de cambios "
-            "hechos en distintos archivos durante un Pull Request:\n\n"
+        reduce_system = (
+            "You are a Technical Lead. Write a 3-sentence summary in Spanish "
+            "of the provided PR changes. Do not use lists."
+        )
+        reduce_user = (
+            "Tienes el siguiente reporte de cambios hechos en distintos archivos "
+            "durante un Pull Request:\n\n"
             f"{consolidated_text}\n\n"
             "Escribe un resumen global cohesivo y fluido en español de máximo "
             "3 oraciones explicando qué características, módulos o arreglos se "
-            "implementaron en general en este Pull Request. No hagas una lista."
+            "implementaron en general. No hagas una lista."
         )
         print("-> Consolidando resumen global...")
-        final_summary = ask_ollama(reduce_prompt)
+        final_summary = ask_ollama(reduce_system, reduce_user)
         
         if final_summary:
             ai_summary = final_summary
         else:
-            # Fallback si el reduce falla
             ai_summary = (
                 "Se modificaron varios archivos, pero la IA no pudo "
                 "consolidar el resumen global."
@@ -125,22 +104,48 @@ def analyze_diff(diff_text):
             "al generar el resumen iterativo)."
         )
 
-    # 3. Construir la respuesta final
-    header = "**[Agente Revisor de MR]** Análisis de impacto en Pull Request:\n\n"
+    # 4. Fase de Clasificación (Decisión de la IA basada en el resumen)
+    decision_system = (
+        "You are a strict CI/CD classifier bot. Your ONLY job is to output a "
+        "classification string in Spanish based on the "
+        "provided PR summary. "
+        "DO NOT explain the code. DO NOT say hello.\n\n"
+        "If the summary mentions changes to networking, gossip, pubsub, sockets "
+        "or threads, output EXACTLY this string and "
+        "nothing else:\n"
+        "[IA Review] requiere revisión humana. "
+        "Justificación: [reason in spanish]\n\n"
+        "If the summary mentions ONLY logs, docs, linters, or UI/Frontend, "
+        "output EXACTLY this string and "
+        "nothing else:\n"
+        "[IA Review] mecánico y mergeable. "
+        "Justificación: [reason in spanish]\n\n"
+        "Example Output:\n"
+        "[IA Review] requiere revisión humana. "
+        "Justificación: Se detectaron "
+        "cambios en el protocolo de propagación Gossip."
+    )
+    decision_user = f"Clasifica este Pull Request en base a este resumen general:\n\n{ai_summary}"
     
-    if is_critical:
-        body = (
-            "[IA Review] requiere revisión humana.\n\n"
-            f"**Motivo de seguridad:** {critical_reason}\n\n"
-            f"**Resumen global del PR (IA):** {ai_summary}"
-        )
+    print("-> Tomando decisión final...")
+    raw_decision = ask_ollama(decision_system, decision_user)
+    
+    # Filtro de Seguridad Final
+    if "[IA Review]" in raw_decision:
+        final_decision = raw_decision
     else:
-        body = (
-            "[IA Review] mecánico y mergeable.\n\n"
-            "**Motivo de seguridad:** Modificación estructural, logs, "\
-            "tipos o tests simples que no alteran la semántica de red.\n\n"
-            f"**Resumen global del PR (IA):** {ai_summary}"
+        final_decision = (
+            "[IA Review] requiere revisión humana.\n"
+            "Justificación: (El modelo "
+            "LLM falló al seguir el formato estricto y devolvió texto no estructurado)."
         )
+
+    # 5. Construir la respuesta final
+    header = "**[Agente Revisor de MR]** Análisis de impacto en Pull Request:\n\n"
+    body = (
+        f"{final_decision}\n\n"
+        f"**Resumen global del PR (IA):** {ai_summary}"
+    )
         
     return header + body
 
