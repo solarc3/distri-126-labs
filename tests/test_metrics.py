@@ -38,6 +38,15 @@ class EscribirMetricasTests(unittest.TestCase):
         self.assertEqual(saludar_peer_id("127.0.0.1:7001"), "127_0_0_1_7001")
         self.assertNotIn(":", saludar_peer_id("127.0.0.1:7001"))
 
+    def test_stamp_temporal_por_defecto_no_es_cero(self) -> None:
+        with tempfile.TemporaryDirectory() as directorio:
+            base = Path(directorio)
+            escritor = EscribirMetricas("run-1", "127.0.0.1:7001", base)
+            escritor.topic("aire", "santiago", "objetivo", 12.0)
+            metricas = list(leer_metricas(base))
+            self.assertEqual(len(metricas), 1)
+            self.assertGreater(metricas[0]["ts"], 0.0)
+
     def test_niega_valores_nulos(self) -> None:
         with tempfile.TemporaryDirectory() as directorio:
             archivo = Path(directorio) / "malo.jsonl"

@@ -131,7 +131,9 @@ class EscribirMetricas:
     def _escribir(self, registro: dict[str, object]) -> None:
         registro.setdefault("run_id", self.run_id)
         registro.setdefault("peer", self.peer)
-        registro.setdefault("ts", time.time())
+        ts = registro.get("ts")
+        if ts is None or ts == 0.0:
+            registro["ts"] = time.time()
         self._archivo.parent.mkdir(parents=True, exist_ok=True)
         with self._archivo.open("a", encoding="utf-8") as archivo:
             archivo.write(json.dumps(registro, ensure_ascii=False) + "\n")

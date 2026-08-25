@@ -15,8 +15,11 @@ from civicmesh.domains.percepcion import (
 )
 from civicmesh.domains.replay import ReplayAire
 from civicmesh.domains.rng import rng_compuesto
+from civicmesh.metrics import EscribirMetricas
 from civicmesh.protocol import JsonValue, PeerId
 from civicmesh.pubsub import PubSub
+
+DOMINIO = "aire"
 
 
 @dataclass
@@ -41,6 +44,7 @@ class DomainBPublisher:
         seed: int,
         intervalo_segundos: float = 1.0,
         clock: Callable[[], float] = time.monotonic,
+        metricas: EscribirMetricas | None = None,
     ) -> None:
         if intervalo_segundos <= 0:
             raise ValueError("intervalo_segundos debe ser positivo")
@@ -54,6 +58,7 @@ class DomainBPublisher:
         self._peer_id = peer_id
         self._intervalo = intervalo_segundos
         self._clock = clock
+        self._metricas = metricas
 
         self._rng_ruido = rng_compuesto(seed, "aire", self._comuna, "eps")
         self._memoria = MemoriaEMA(percepcion["alpha"])
@@ -112,6 +117,10 @@ class DomainBPublisher:
             cast(JsonValue, dict(subjetivo)),
             channel="subjetivo",
         )
+
+        if self._metricas is not None:
+            self._metricas.topic(DOMINIO, self._comuna, "objetivo", v_c)
+            self._metricas.topic(DOMINIO, self._comuna, "subjetivo", p_c)
 
         paso = PasoAire(
             t=t,

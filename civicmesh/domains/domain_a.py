@@ -14,8 +14,11 @@ from civicmesh.domains.percepcion import (
     sigmoide,
 )
 from civicmesh.domains.rng import poisson, rng_compuesto
+from civicmesh.metrics import EscribirMetricas
 from civicmesh.protocol import JsonValue, PeerId
 from civicmesh.pubsub import PubSub
+
+DOMINIO = "delitos"
 
 
 class EventoDelito(TypedDict):
@@ -48,6 +51,7 @@ class DomainAPublisher:
         dt: float = 1.0,
         intervalo_segundos: float = 1.0,
         clock: Callable[[], float] = time.monotonic,
+        metricas: EscribirMetricas | None = None,
     ) -> None:
         if not tasas:
             raise ValueError("tasas no puede estar vacio")
@@ -64,6 +68,7 @@ class DomainAPublisher:
         self._dt = dt
         self._intervalo = intervalo_segundos
         self._clock = clock
+        self._metricas = metricas
 
         self._rng_por_tipo = {
             tipo: rng_compuesto(seed, self._comuna, tipo) for tipo in self._tasas
@@ -126,6 +131,10 @@ class DomainAPublisher:
             cast(JsonValue, dict(subjetivo)),
             channel="subjetivo",
         )
+
+        if self._metricas is not None:
+            self._metricas.topic(DOMINIO, self._comuna, "objetivo", float(total))
+            self._metricas.topic(DOMINIO, self._comuna, "subjetivo", p_c)
 
         paso = PasoDelitos(
             t=t,
