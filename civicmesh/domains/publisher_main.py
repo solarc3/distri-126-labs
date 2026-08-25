@@ -15,7 +15,7 @@ from civicmesh.membership.gossip import Gossip
 from civicmesh.membership.view import MembershipView
 from civicmesh.metrics import EscribirMetricas
 from civicmesh.node import ConfigError, Node, load_config
-from civicmesh.pubsub import PubSub
+from civicmesh.pubsub import PoliticasCanales, PubSub
 from civicmesh.transport import Transport
 
 logger = logging.getLogger(__name__)
@@ -70,6 +70,10 @@ def build_publisher_node(
     loop_air: bool,
     run_id: str = "local",
     metrics_dir: Path | None = None,
+    t_suspect: float | None = None,
+    t_dead: float | None = None,
+    gossip_fanout: int | None = None,
+    politicas: PoliticasCanales | None = None,
 ) -> Node:
     network_config = load_config(config_path, peer_name)
     generadores = load_generadores_config(generadores_path)
@@ -78,18 +82,23 @@ def build_publisher_node(
     vista = MembershipView(
         network_config.advertise,
         network_config.seeds,
-        t_suspect=network_config.t_suspect,
-        t_dead=network_config.t_dead,
+        t_suspect=network_config.t_suspect if t_suspect is None else t_suspect,
+        t_dead=network_config.t_dead if t_dead is None else t_dead,
     )
     rng = random.Random(network_config.random_seed)
     gossip = Gossip(
         vista,
         transport,
         rng,
-        fanout=network_config.gossip_fanout,
+        fanout=network_config.gossip_fanout if gossip_fanout is None else gossip_fanout,
         interval=network_config.gossip_interval,
     )
-    pubsub = PubSub(vista, transport, network_config.pubsub_policies, rng=rng)
+    pubsub = PubSub(
+        vista,
+        transport,
+        network_config.pubsub_policies if politicas is None else politicas,
+        rng=rng,
+    )
     transport.register_handler("gossip", gossip.handle)
     transport.register_handler("pubsub", pubsub.handle)
     pubsub.subscribe(comuna)
