@@ -33,11 +33,11 @@ jobs:
           echo "Recopilando documentación..."
           cat README.md CHANGELOG.md 2>/dev/null | head -n 500 > docs_context.txt || echo "Documentos no encontrados" > docs_context.txt
           
-          # English Prompt
+          # Clean prompt trusting llama3.2
           JSON_PAYLOAD=$(jq -n --arg docs "$(cat docs_context.txt)" '{
             model: "llama3.2", 
             messages: [
-              {role: "system", content: "Analyze the provided README and CHANGELOG. You are a strict documentation auditor.\nIf you notice it is missing documentation on how to run the cluster with Slurm, how to start Docker Compose, or lacks an explanation of the general architecture (Gossip/PubSub), reply EXACTLY starting with the word DANGER followed by what is missing.\nIf all those topics (Slurm, Docker, framework description) are present, reply EXACTLY starting with the word SAFE."},
+              {role: "system", content: "Eres el Agente Documentador de CivicMesh. Analiza los archivos README y CHANGELOG.\nREGLA 1: Si falta documentación sobre cómo correr el clúster con Slurm, levantar Docker Compose, o no se explica la arquitectura general (Gossip/PubSub), responde EXACTAMENTE: 'Requiere intervención humana: <lista brevemente lo que falta>'.\nREGLA 2: Si todos esos temas están explicados, responde EXACTAMENTE: 'La documentación parece estar completa y cumple los requisitos básicos (Slurm, Docker, framework descritos).'\nNO añadas preámbulos ni conclusiones."},
               {role: "user", content: $docs}
             ],
             stream: false, 
@@ -46,20 +46,7 @@ jobs:
           
           RAW_RESP=$(curl -s -X POST http://localhost:11434/api/chat -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.message.content')
           
-          echo "Raw AI response: $RAW_RESP"
-          
-          UPPER_RESP=$(echo "$RAW_RESP" | tr '[:lower:]' '[:upper:]')
-          
-          if [[ "$UPPER_RESP" == *"DANGER"* ]]; then
-             CLEAN_REASON=$(echo "$RAW_RESP" | sed 's/[Dd][Aa][Nn][Gg][Ee][Rr]//g' | sed 's/^[ \t:-]*//' | xargs)
-             FINAL_TEXT="Requiere intervención humana: $CLEAN_REASON"
-          elif [[ "$UPPER_RESP" == *"SAFE"* ]]; then
-             FINAL_TEXT="La documentación parece estar completa y cumple los requisitos básicos (Slurm, Docker, framework descritos)."
-          else
-             FINAL_TEXT="Requiere intervención humana: No se pudo auditar la documentación correctamente por la IA."
-          fi
-          
-          echo -e "**[Agente Documentador]** Revisión de estado de documentación:\n\n$FINAL_TEXT" > issue_body.txt
+          echo -e "**[Agente Documentador]** Revisión de estado de documentación:\n\n$RAW_RESP" > issue_body.txt
 
       - name: Create Issue
         env:

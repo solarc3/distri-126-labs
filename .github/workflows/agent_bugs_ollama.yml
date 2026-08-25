@@ -33,11 +33,11 @@ jobs:
           echo "Recopilando código..."
           cat civicmesh/protocol.py civicmesh/node.py 2>/dev/null | head -n 500 > code_context.txt || echo "Código no encontrado" > code_context.txt
           
-          # English Prompt
+          # Clean prompt trusting llama3.2
           JSON_PAYLOAD=$(jq -n --arg code "$(cat code_context.txt)" '{
             model: "llama3.2", 
             messages: [
-              {role: "system", content: "Analyze the provided Python networking code. You are a strict binary auditing system.\nIf you find concurrency issues, deadlocks, poorly closed sockets, or logical errors in pubsub/gossip routing, reply EXACTLY starting with the word DANGER followed by the issue found (1 sentence).\nIf the code looks structurally fine or issues are purely aesthetic (variable names, logs), reply EXACTLY starting with the word SAFE followed by a short confirmation."},
+              {role: "system", content: "Eres el Agente Revisor de Bugs de CivicMesh. Analiza el código Python provisto.\nREGLA 1: Si encuentras problemas de concurrencia, deadlocks, sockets mal cerrados o errores lógicos en el ruteo pubsub/gossip, responde EXACTAMENTE: 'Requiere intervención humana. Se han detectado posibles vulnerabilidades o fallos semánticos: <describe el problema en 1 oración>'.\nREGLA 2: Si el código se ve estructuralmente bien o los problemas son puramente estéticos, responde EXACTAMENTE: 'No se encontraron anomalías graves. Auditoría estática: <confirma el estado en 1 oración>'.\nNO agregues ningún texto adicional, saludos o despedidas."},
               {role: "user", content: $code}
             ],
             stream: false, 
@@ -46,21 +46,7 @@ jobs:
           
           RAW_RESP=$(curl -s -X POST http://localhost:11434/api/chat -H "Content-Type: application/json" -d "$JSON_PAYLOAD" | jq -r '.message.content')
           
-          echo "Raw AI response: $RAW_RESP"
-          
-          UPPER_RESP=$(echo "$RAW_RESP" | tr '[:lower:]' '[:upper:]')
-          
-          if [[ "$UPPER_RESP" == *"DANGER"* ]]; then
-             CLEAN_REASON=$(echo "$RAW_RESP" | sed 's/[Dd][Aa][Nn][Gg][Ee][Rr]//g' | sed 's/^[ \t:-]*//' | xargs)
-             FINAL_TEXT="Requiere intervención humana.\nSe han detectado posibles vulnerabilidades o fallos semánticos: $CLEAN_REASON"
-          elif [[ "$UPPER_RESP" == *"SAFE"* ]]; then
-             CLEAN_REASON=$(echo "$RAW_RESP" | sed 's/[Ss][Aa][Ff][Ee]//g' | sed 's/^[ \t:-]*//' | xargs)
-             FINAL_TEXT="No se encontraron anomalías graves.\nAuditoría estática: $CLEAN_REASON"
-          else
-             FINAL_TEXT="Requiere intervención humana.\nEl modelo detectó ambigüedades y requiere revisión humana."
-          fi
-          
-          echo -e "**[Agente Revisor de Bugs]** Informe de análisis de código base:\n\n$FINAL_TEXT" > issue_body.txt
+          echo -e "**[Agente Revisor de Bugs]** Informe de análisis de código base:\n\n$RAW_RESP" > issue_body.txt
 
       - name: Create Issue
         env:
