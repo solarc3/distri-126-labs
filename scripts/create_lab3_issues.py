@@ -1,7 +1,7 @@
-import urllib.request
 import json
 import os
 import sys
+import urllib.request
 
 def create_issue(title, body, labels, token):
     url = "https://api.github.com/repos/solarc3/distri-126-labs/issues"
@@ -29,27 +29,43 @@ if __name__ == "__main__":
     issues = [
         {
             "title": "[Lab 3] Capa de Red y Gossip: Membresía y Tolerancia a Fallos",
-            "body": "Implementar el protocolo de membresía gossip para el descubrimiento de pares, mantenimiento de vista parcial y detección de fallos por timeout. Definir y justificar el fanout de membresía.",
+            "body": "Implementar el protocolo de membresía gossip para el"
+                "descubrimiento de pares, mantenimiento de vista parcial y "
+                "detección de fallos por timeout. Definir y justificar el fanout "
+                "de membresía.",
             "labels": ["gossip", "lab3", "enhancement"]
         },
         {
             "title": "[Lab 3] Capa Pub/Sub: Ruteo y should_forward",
-            "body": "Implementar la lógica de subscripciones a tópicos geográficos (comunas). Desarrollar la función explícita `should_forward` considerando TTL y prioridad. Evitar flooding ciego.",
+            "body": "Implementar la lógica de subscripciones a tópicos"
+                "geográficos (comunas). Desarrollar la función explícita "
+                "`should_forward` considerando TTL y prioridad. Evitar flooding "
+                "ciego.",
             "labels": ["pubsub", "lab3", "enhancement"]
         },
         {
             "title": "[Lab 3] Capa de Datos: Generadores y Replay de Series",
-            "body": "Implementar la ingesta y caché del Dominio B (Aire) mediante archivos reales de Open-Meteo/SINCA. Desarrollar los generadores estocásticos (Poisson) para Dominio A y los simuladores de percepción ciudadana para ambos dominios usando fórmulas del informe.",
+            "body": "Implementar la ingesta y caché del Dominio B (Aire)"
+                "mediante archivos reales de Open-Meteo/SINCA. Desarrollar los "
+                "generadores estocásticos (Poisson) para Dominio A y los "
+                "simuladores de percepción ciudadana para ambos dominios usando "
+                "fórmulas del informe.",
             "labels": ["datos", "lab3", "enhancement"]
         },
         {
             "title": "[Lab 3] Capa Analítica: Métricas y Frontend",
-            "body": "Implementar la lógica que calcule las métricas de convergencia y la divergencia (percepción vs realidad). Desarrollar el frontend mínimo para visualizar el estado agregado por tópico y canal, consumiendo desde el shared FS.",
+            "body": "Implementar la lógica que calcule las métricas de"
+                "convergencia y la divergencia (percepción vs realidad). "
+                "Desarrollar el frontend mínimo para visualizar el estado "
+                "agregado por tópico y canal, consumiendo desde el shared FS.",
             "labels": ["analítica", "lab3", "enhancement"]
         },
         {
             "title": "[Lab 3] Infraestructura: CI/CD, Compose y Slurm",
-            "body": "Configurar y asegurar tests unitarios (rojo bloquea merge), pipelines en GitHub Actions, andamiaje de Compose multi-perfil (delitos/aire), y los scripts de Slurm y FS compartido para la ejecución real en DIINF.",
+            "body": "Configurar y asegurar tests unitarios (rojo bloquea"
+                "merge), pipelines en GitHub Actions, andamiaje de Compose "
+                "multi-perfil (delitos/aire), y los scripts de Slurm y FS "
+                "compartido para la ejecución real en DIINF.",
             "labels": ["infraestructura", "lab3", "enhancement"]
         }
     ]
