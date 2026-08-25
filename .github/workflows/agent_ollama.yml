@@ -1,0 +1,66 @@
+name: Ollama PR Agent
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  pr_reviewer:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          
+      - name: Start Ollama Server
+        run: |
+          ollama serve &
+          sleep 5
+          ollama pull qwen2.5:0.5b
+
+      - name: Get PR Diff and Analyze
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          echo "Obteniendo diff del PR..."
+          gh pr diff $PR_NUMBER > pr_diff.txt
+          
+          # Acotar el tamaño del diff si es demasiado grande para evitar OOM o demoras
+          head -n 500 pr_diff.txt > diff_short.txt
+          
+          echo "Analizando código con Ollama..."
+          PROMPT="Eres el Agente Revisor de PRs del framework CivicMesh (Python). Tu tarea es clasificar el impacto de los cambios. 
+          Aquí está el diff del Pull Request:
+          
+          $(cat diff_short.txt)
+          
+          Reglas:
+          - Si el cambio altera el comportamiento de la red, modifica el fanout, el protocolo pub/sub o gossip, responde exactamente con: '[IA Review] requiere revisión humana'.
+          - Si los cambios son solo mecánicos (logs, tipos, test básicos) y no tocan la semántica de red, responde exactamente con: '[IA Review] mecánico y mergeable'.
+          - Sé muy breve, responde solamente con la clasificación y una pequeña justificación de 1 oración."
+          
+          # Ejecutar inferencia
+          RESPONSE=$(ollama run qwen2.5:0.5b "$PROMPT")
+          
+          echo "Respuesta de la IA:"
+          echo "$RESPONSE"
+          
+          # Guardar respuesta en un archivo para el siguiente paso
+          echo "$RESPONSE" > ai_comment.txt
+
+      - name: Comentar en el PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment $PR_NUMBER -F ai_comment.txt
