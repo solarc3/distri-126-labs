@@ -37,7 +37,7 @@ jobs:
           JSON_PAYLOAD=$(jq -n --arg docs "$(cat docs_context.txt)" '{
             model: "llama3.2", 
             messages: [
-              {role: "system", content: "Eres el Agente Documentador de CivicMesh. Analiza los archivos README y CHANGELOG.\nREGLA 1: Si falta documentación sobre cómo correr el clúster con Slurm, levantar Docker Compose, o no se explica la arquitectura general (Gossip/PubSub), responde EXACTAMENTE: 'Requiere intervención humana: <lista brevemente lo que falta>'.\nREGLA 2: Si todos esos temas están explicados, responde EXACTAMENTE: 'La documentación parece estar completa y cumple los requisitos básicos (Slurm, Docker, framework descritos).'\nNO añadas preámbulos ni conclusiones."},
+              {role: "system", content: "Eres el Agente Documentador de CivicMesh. Analiza los archivos README y CHANGELOG.\nREGLA 1: Si falta documentación sobre cómo correr el clúster con Slurm, levantar Docker Compose, o no se explica la arquitectura general (Gossip/PubSub), responde EXACTAMENTE: 'Requiere intervención humana: [lista brevemente lo que falta]'.\nREGLA 2: Si todos esos temas están explicados, responde EXACTAMENTE: 'La documentación parece estar completa y cumple los requisitos básicos (Slurm, Docker, framework descritos).'\nNO añadas preámbulos ni conclusiones."},
               {role: "user", content: $docs}
             ],
             stream: false, 

@@ -37,7 +37,7 @@ jobs:
           JSON_PAYLOAD=$(jq -n --arg code "$(cat code_context.txt)" '{
             model: "llama3.2", 
             messages: [
-              {role: "system", content: "Eres el Agente Revisor de Bugs de CivicMesh. Analiza el código Python provisto.\nREGLA 1: Si encuentras problemas de concurrencia, deadlocks, sockets mal cerrados o errores lógicos en el ruteo pubsub/gossip, responde EXACTAMENTE: 'Requiere intervención humana. Se han detectado posibles vulnerabilidades o fallos semánticos: <describe el problema en 1 oración>'.\nREGLA 2: Si el código se ve estructuralmente bien o los problemas son puramente estéticos, responde EXACTAMENTE: 'No se encontraron anomalías graves. Auditoría estática: <confirma el estado en 1 oración>'.\nNO agregues ningún texto adicional, saludos o despedidas."},
+              {role: "system", content: "Eres el Agente Revisor de Bugs de CivicMesh. Analiza el código Python provisto.\nREGLA 1: Si encuentras problemas de concurrencia, deadlocks, sockets mal cerrados o errores lógicos en el ruteo pubsub/gossip, responde EXACTAMENTE: 'Requiere intervención humana. Se han detectado posibles vulnerabilidades o fallos semánticos: [describe el problema en 1 oración]'.\nREGLA 2: Si el código se ve estructuralmente bien o los problemas son puramente estéticos, responde EXACTAMENTE: 'No se encontraron anomalías graves. Auditoría estática: [confirma el estado en 1 oración]'.\nNO agregues ningún texto adicional, saludos o despedidas."},
               {role: "user", content: $code}
             ],
             stream: false, 
