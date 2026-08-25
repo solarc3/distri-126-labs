@@ -125,7 +125,10 @@ def analyze_diff(diff_text):
         "Justificación: Se detectaron "
         "cambios en el protocolo de propagación Gossip."
     )
-    decision_user = f"Clasifica este Pull Request en base a este resumen general:\n\n{ai_summary}"
+    decision_user = (
+        "Clasifica este Pull Request en base a este resumen general:\n\n"
+        f"{ai_summary}"
+    )
     
     print("-> Tomando decisión final...")
     raw_decision = ask_ollama(decision_system, decision_user)
