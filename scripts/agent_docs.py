@@ -1,8 +1,3 @@
-import sys
-import json
-import urllib.request
-import re
-
 def analyze_docs(docs_text):
     # Palabras clave obligatorias
     required_keywords = [
@@ -22,15 +17,22 @@ def analyze_docs(docs_text):
     header = "**[Agente Documentador]** Revisión de estado de documentación:\n\n"
     
     if missing_docs:
-        body = "Requiere intervención humana:\n- " + "\n- ".join(missing_docs)
+        body = (
+            "Requiere intervención humana:\n- " 
+            + "\n- ".join(missing_docs)
+        )
     else:
-        body = "La documentación parece estar completa y cumple los requisitos básicos (Slurm, Docker, framework descritos)."
+        body = (
+            "La documentación parece estar completa y "
+            "cumple los requisitos básicos (Slurm, Docker, framework descritos)."
+        )
         
     return header + body
 
+
 if __name__ == "__main__":
     try:
-        with open("docs_context.txt", "r") as f:
+        with open("docs_context.txt") as f:
             docs = f.read()
     except Exception:
         docs = ""
