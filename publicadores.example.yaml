@@ -1,0 +1,31 @@
+network:
+  peers:
+    publicador-delitos-1:
+      bind: "0.0.0.0:7101"
+      advertise: "127.0.0.1:7101"
+      seeds:
+        - "127.0.0.1:7001"
+    publicador-aire-1:
+      bind: "0.0.0.0:7102"
+      advertise: "127.0.0.1:7102"
+      seeds:
+        - "127.0.0.1:7001"
+
+gossip:
+  fanout: 1
+  interval_seconds: 1.0
+  suspect_after_seconds: 10.0
+  dead_after_seconds: 20.0
+  random_seed: 126
+
+pubsub:
+  channels:
+    objetivo:
+      ttl: 5
+      priority: 2
+    subjetivo:
+      ttl: 3
+      priority: 1
+
+node:
+  loop_interval_seconds: 0.05
