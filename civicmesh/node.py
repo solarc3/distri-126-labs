@@ -214,14 +214,15 @@ def build_node(config: NodeConfig) -> Node:
         t_suspect=config.t_suspect,
         t_dead=config.t_dead,
     )
+    rng = random.Random(config.random_seed)
     gossip = Gossip(
         vista,
         transport,
-        random.Random(config.random_seed),
+        rng,
         fanout=config.gossip_fanout,
         interval=config.gossip_interval,
     )
-    pubsub = PubSub(vista, transport)
+    pubsub = PubSub(vista, transport, rng=rng)
     transport.register_handler("gossip", gossip.handle)
     transport.register_handler("pubsub", pubsub.handle)
     return Node(

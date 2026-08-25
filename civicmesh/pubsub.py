@@ -1,11 +1,12 @@
 """Módulo Pub/Sub para la diseminación de mensajes con enrutamiento inteligente."""
 
 import logging
+import random
 import time
 from collections.abc import Callable, Sequence
 from typing import Any, Literal, TypeAlias, TypedDict, cast
 
-from civicmesh.membership.view import MembershipView
+from civicmesh.membership.view import MembershipView, RandomSource
 from civicmesh.protocol import JsonValue, PeerId, ProtocolError, Sobre
 from civicmesh.transport import EndpointError, Transport, parse_endpoint
 
@@ -232,6 +233,7 @@ class PubSub:
         transport: Transport,
         subscriptions: SubscriptionManager | None = None,
         fanout: int | None = None,
+        rng: RandomSource | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         if vista.yo != transport.peer_id:
@@ -243,6 +245,7 @@ class PubSub:
         self._transport = transport
         self._subscriptions = subscriptions or SubscriptionManager()
         self._fanout = fanout
+        self._rng = rng or random.Random()
         self._clock = clock
 
         self._vistos: set[str] = set()
@@ -370,7 +373,7 @@ class PubSub:
         ]
 
         if self._fanout is not None and len(destinatarios) > self._fanout:
-            destinatarios = destinatarios[: self._fanout]
+            destinatarios = self._rng.sample(destinatarios, self._fanout)
 
         for objetivo in destinatarios:
             try:

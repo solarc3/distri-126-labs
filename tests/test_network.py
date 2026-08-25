@@ -590,6 +590,31 @@ class PubSubTests(unittest.TestCase):
         # No se debe procesar de nuevo por la deduplicación
         self.assertEqual(len(recibidos), 1)
 
+    def test_pubsub_fanout_seleccion_aleatoria(self) -> None:
+        vista = MembershipView(
+            "127.0.0.1:7001",
+            ["127.0.0.1:7002", "127.0.0.1:7003", "127.0.0.1:7004"],
+            t_suspect=10,
+            t_dead=20,
+        )
+        vista.contacto_directo("127.0.0.1:7002", 1, 100.0)
+        vista.contacto_directo("127.0.0.1:7003", 1, 100.0)
+        vista.contacto_directo("127.0.0.1:7004", 1, 100.0)
+
+        rec = RecordingTransport("127.0.0.1:7001")
+        transport = cast(Transport, rec)
+        # Configurar fanout=1 y rng determinista
+        rng = random.Random(42)
+        pubsub = PubSub(vista, transport, fanout=1, rng=rng)
+
+        pubsub.publish("santiago", "alerta", channel="objetivo")
+        self.assertEqual(len(rec.sent), 1)
+        # Debe enviar solo a 1 destinatario debido al fanout
+        destinatario = rec.sent[0][0]
+        self.assertIn(
+            destinatario, ["127.0.0.1:7002", "127.0.0.1:7003", "127.0.0.1:7004"]
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
