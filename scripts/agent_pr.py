@@ -115,7 +115,10 @@ def analyze_diff(diff_text):
             ai_summary = final_summary
         else:
             # Fallback si el reduce falla
-            ai_summary = "Se modificaron varios archivos, pero la IA no pudo consolidar el resumen global."
+            ai_summary = (
+                "Se modificaron varios archivos, pero la IA no pudo "
+                "consolidar el resumen global."
+            )
     else:
         ai_summary = (
             "(No se detectaron archivos válidos en el diff o la IA falló "
