@@ -28,57 +28,48 @@ def analyze_diff(diff_text):
         if is_critical:
             break
             
+    # Siempre consultar a la IA para obtener un resumen real del código
     ai_summary = ""
     try:
-        if not is_critical:
-            prompt = (
-                "Resume brevemente y en español (máximo 1 oración) "
-                "qué cambios mecánicos se hicieron:\n\n" 
-                + diff_text[:1500]
-            )
-            payload = json.dumps({
-                "model": "llama3.2",
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-                "options": {"temperature": 0.0}
-            }).encode('utf-8')
-            
-            req = urllib.request.Request(
-                "http://localhost:11434/api/chat",
-                data=payload,
-                headers={"Content-Type": "application/json"}
-            )
-            with urllib.request.urlopen(req, timeout=30) as response:
-                res = json.loads(response.read().decode())
-                ai_summary = (
-                    res.get('message', {}).get('content', '')
-                    .strip().split('\n')[0]
-                )
-                ai_summary = ai_summary.replace(
-                    "Aquí tienes el resumen:", ""
-                ).strip()
+        prompt = (
+            "Resume brevemente y en español (máximo 2 oraciones) "
+            "qué cambios se hicieron en este diff de código:\n\n" 
+            + diff_text[:1500]
+        )
+        payload = json.dumps({
+            "model": "llama3.2",
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            "options": {"temperature": 0.0}
+        }).encode('utf-8')
+        
+        req = urllib.request.Request(
+            "http://localhost:11434/api/chat",
+            data=payload,
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=30) as response:
+            res = json.loads(response.read().decode())
+            # Tomar el contenido y limpiar saltos de línea extra
+            ai_summary = res.get('message', {}).get('content', '').strip()
+            ai_summary = ai_summary.replace("Aquí tienes el resumen:", "").strip()
     except Exception:
-        ai_summary = "Cambios mecánicos, de logs, o de configuración general."
+        ai_summary = "(No se pudo generar el resumen detallado por timeout o error en la IA)."
 
     header = "**[Agente Revisor de MR]** Análisis de impacto en Pull Request:\n\n"
     
     if is_critical:
         body = (
-            "[IA Review] requiere revisión humana.\n"
-            f"Justificación: {critical_reason}"
+            "[IA Review] requiere revisión humana.\n\n"
+            f"**Motivo de seguridad:** {critical_reason}\n\n"
+            f"**Resumen del cambio (IA):** {ai_summary}"
         )
     else:
-        if ai_summary and len(ai_summary) < 150:
-            reason = ai_summary
-        else:
-            reason = (
-                "Modificación estructural, logs, tipos o tests simples "
-                "que no alteran la semántica."
-            )
-            
         body = (
-            "[IA Review] mecánico y mergeable.\n"
-            f"Justificación: {reason}"
+            "[IA Review] mecánico y mergeable.\n\n"
+            "**Motivo de seguridad:** Modificación estructural, logs, tipos o tests simples "
+            "que no alteran la semántica de red.\n\n"
+            f"**Resumen del cambio (IA):** {ai_summary}"
         )
         
     return header + body

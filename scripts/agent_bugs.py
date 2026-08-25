@@ -25,35 +25,32 @@ def analyze_bugs(code_text):
             if re.search(pattern, line) and reason not in issues_found:
                 issues_found.append(reason)
                     
-    # Intentar usar IA para contexto adicional (opcional)
+    # Siempre consultar a la IA para un análisis descriptivo general
     ai_summary = ""
-    if not issues_found:
-        try:
-            prompt = (
-                "Revisa este código Python de red (máximo 1500 chars) y describe "
-                "en 1 oración corta si ves un fallo. Si se ve bien, responde 'OK'.\n\n" 
-                + code_text[:1500]
-            )
-            payload = json.dumps({
-                "model": "llama3.2",
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-                "options": {"temperature": 0.0}
-            }).encode('utf-8')
-            
-            req = urllib.request.Request(
-                "http://localhost:11434/api/chat",
-                data=payload,
-                headers={"Content-Type": "application/json"}
-            )
-            with urllib.request.urlopen(req, timeout=30) as response:
-                res = json.loads(response.read().decode())
-                ai_summary = (
-                    res.get('message', {}).get('content', '')
-                    .strip().split('\n')[0]
-                )
-        except Exception:
-            ai_summary = "OK"
+    try:
+        prompt = (
+            "Revisa este código Python de red (máximo 1500 chars) y describe "
+            "en 1 o 2 oraciones si notas algún problema lógico o de concurrencia. "
+            "Si se ve bien, simplemente indica que no hay fallos evidentes.\n\n" 
+            + code_text[:1500]
+        )
+        payload = json.dumps({
+            "model": "llama3.2",
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            "options": {"temperature": 0.0}
+        }).encode('utf-8')
+        
+        req = urllib.request.Request(
+            "http://localhost:11434/api/chat",
+            data=payload,
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req, timeout=30) as response:
+            res = json.loads(response.read().decode())
+            ai_summary = res.get('message', {}).get('content', '').strip()
+    except Exception:
+        ai_summary = "(No se pudo completar la auditoría IA por timeout)."
 
     header = "**[Agente Revisor de Bugs]** Informe de análisis de código base:\n\n"
     
@@ -62,18 +59,13 @@ def analyze_bugs(code_text):
             "Requiere intervención humana.\n"
             "Se han detectado posibles vulnerabilidades:\n- " 
             + "\n- ".join(issues_found)
+            + f"\n\n**Análisis de la IA:** {ai_summary}"
         )
     else:
-        if "OK" not in ai_summary and len(ai_summary) > 10:
-            body = (
-                "Requiere revisión menor.\nAuditoría estática (IA): "
-                f"{ai_summary}"
-            )
-        else:
-            body = (
-                "No se encontraron anomalías graves.\n"
-                "Auditoría estática: El código no presenta patrones críticos."
-            )
+        body = (
+            "No se encontraron anomalías graves mediante el escaneo estático.\n\n"
+            f"**Análisis de la IA:** {ai_summary}"
+        )
             
     return header + body
 
