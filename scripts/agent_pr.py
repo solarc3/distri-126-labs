@@ -54,7 +54,10 @@ def analyze_diff(diff_text):
             ai_summary = res.get('message', {}).get('content', '').strip()
             ai_summary = ai_summary.replace("Aquí tienes el resumen:", "").strip()
     except Exception:
-        ai_summary = "(No se pudo generar el resumen detallado por timeout o error en la IA)."
+        ai_summary = (
+            "(No se pudo generar el resumen detallado por "
+            "timeout o error en la IA)."
+        )
 
     header = "**[Agente Revisor de MR]** Análisis de impacto en Pull Request:\n\n"
     
@@ -67,7 +70,8 @@ def analyze_diff(diff_text):
     else:
         body = (
             "[IA Review] mecánico y mergeable.\n\n"
-            "**Motivo de seguridad:** Modificación estructural, logs, tipos o tests simples "
+            "**Motivo de seguridad:** Modificación estructural, logs, "
+            "tipos o tests simples "
             "que no alteran la semántica de red.\n\n"
             f"**Resumen del cambio (IA):** {ai_summary}"
         )
