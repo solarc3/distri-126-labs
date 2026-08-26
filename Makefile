@@ -1,4 +1,4 @@
-.PHONY: install test lint format docker-build compose-delitos compose-aire run-cluster clean
+.PHONY: install test lint format docker-build compose-delitos compose-aire compose-check-delitos compose-check-aire run-cluster clean
 
 install:
 	pip install -e .
@@ -22,6 +22,12 @@ compose-delitos:
 
 compose-aire:
 	docker compose --profile aire up --build
+
+compose-check-delitos:
+	python scripts/check_compose.py delitos
+
+compose-check-aire:
+	python scripts/check_compose.py aire
 
 run-cluster:
 	sbatch scripts/slurm/run_cluster.slurm
