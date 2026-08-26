@@ -5,7 +5,7 @@ requires-python = ">=3.10"
 dependencies = ["PyYAML>=6.0,<7"]
 
 [tool.setuptools.packages.find]
-include = ["civicmesh", "civicmesh*"]
+include = ["civicmesh*"]
 
 [tool.setuptools.package-data]
 civicmesh = ["comunas_rm.yaml"]

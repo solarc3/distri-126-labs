@@ -25,42 +25,22 @@ pip install -e .
 pip install pytest ruff
 ```
 
-## Pruebas y Linter
-Este repositorio utiliza `pytest` para pruebas y `ruff` para linting y formateo.
-```bash
-make lint
-make test
-```
+## Politica de fanout y estados
 
-## Ejecución Local (Docker Compose)
-Para levantar la malla con perfiles específicos, usar:
-```bash
-# Dominio A (Delitos)
-make compose-delitos
+El fanout de membresia y el fanout de pub/sub son decisiones separadas:
 
-La capa pub/sub obtiene destinos mediante `MembershipView.vivos()` y consulta
-sus tópicos con `MembershipView.topics_de()`. Asi, el trafico de aplicacion solo
-se envia a peers confirmados como `alive` sin duplicar las suscripciones fuera
-de la vista.
+| Estado | Gossip | Pub/sub |
+| --- | --- | --- |
+| `unknown` | candidato | excluido |
+| `alive` | candidato | candidato |
+| `suspect` | candidato | excluido |
+| `dead` | excluido | excluido |
 
-Los TTL y prioridades iniciales de los canales `objetivo` y `subjetivo` se
-definen en la sección `pubsub.channels` de `config.example.yaml`. Los reenvíos
-pendientes se despachan de mayor a menor prioridad. El grafo simétrico de
-adyacencia usado para filtrar destinos está versionado en
-`civicmesh/comunas_rm.yaml`.
-# Dominio B (Aire)
-make compose-aire
-```
-O directamente con Docker Compose:
-`docker compose --profile delitos up --build`
-
-## Ejecución en Clúster DIINF (Slurm)
-Los logs de corrida y métricas se guardarán bajo la convención `$CIVICMESH_RUNS/<run_id>/`.
-```bash
-make run-cluster
-# o
-sbatch scripts/slurm/run_cluster.slurm
-```
+Gossip elige uniformemente hasta `fanout` peers entre los estados `unknown`,
+`alive` y `suspect`. Mantener `unknown` permite el bootstrap y mantener
+`suspect` permite confirmar si un peer sigue disponible. Los peers `dead` se
+excluyen para no gastar rondas en endpoints cuyo timeout ya vencio; un proceso
+que reinicia puede volver a `alive` al contactar directamente a un peer activo.
 
 La capa pub/sub obtiene destinos mediante `MembershipView.vivos()` y consulta
 sus tópicos con `MembershipView.topics_de()`. Asi, el trafico de aplicacion solo
@@ -138,12 +118,38 @@ CPU ya definido en `config.example.yaml`), por lo que hereda las mismas
 políticas de TTL/prioridad/fanout documentadas arriba. En el clúster DIINF
 corre en un host GPU usando solo la CPU del host (Sección 5.1); no usa CUDA.
 
-## Verificacion
-
+## Pruebas y Linter
+Este repositorio utiliza `pytest` para pruebas y `ruff` para linting y formateo.
 ```bash
-ruff check civicmesh tests scripts
-ruff format --check civicmesh tests scripts
-python -B -m unittest discover -v
+make lint
+make test
+```
+
+## Ejecución Local (Docker Compose)
+Para levantar la malla con perfiles específicos, usar:
+```bash
+# Dominio A (Delitos)
+make compose-delitos
+
+# Dominio B (Aire)
+make compose-aire
+```
+O directamente con Docker Compose:
+`docker compose --profile delitos up --build`
+
+## Ejecución en Clúster DIINF (Slurm)
+Los logs de corrida y métricas se guardarán bajo la convención `$CIVICMESH_RUNS/<run_id>/`.
+```bash
+make run-cluster
+# o
+sbatch scripts/slurm/run_cluster.slurm
+```
+
+## Interfaz de Analítica (Frontend)
+El frontend estará disponible en el puerto `8080`.
+Si corres en Slurm, debes hacer un túnel SSH hacia el host GPU que corre el frontend:
+```bash
+ssh -L 8080:localhost:8080 usuario@cluster -J usuario@gw
 ```
 
 ## Agentes de IA

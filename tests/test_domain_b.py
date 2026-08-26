@@ -201,6 +201,26 @@ class DomainBPublisherTests(unittest.TestCase):
         publicador.tick(1.0)
         self.assertEqual(len(publicador.historial), 2)
 
+    def test_dt_configurable_avanza_el_tiempo_logico(self) -> None:
+        # Antes de la refactorización a PublisherBase, domain_b.tick() avanzaba
+        # el tiempo logico con un +=1.0 fijo, sin exponer un dt como domain_a.
+        pubsub, _vista, _t = _construir_pubsub("127.0.0.1:7001")
+        pubsub.subscribe("santiago")
+        publicador = DomainBPublisher(
+            "santiago",
+            _replay_santiago(),
+            PERCEPCION_AIRE,
+            pubsub,
+            "127.0.0.1:7001",
+            seed=126,
+            dt=2.5,
+            intervalo_segundos=1.0,
+        )
+
+        publicador.tick(0.0)
+        publicador.tick(1.0)
+        self.assertEqual([p.t for p in publicador.historial], [0.0, 2.5])
+
 
 if __name__ == "__main__":
     unittest.main()

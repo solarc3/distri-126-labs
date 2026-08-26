@@ -1,18 +1,24 @@
+"""Dominio A — Delitos: canal objetivo (Poisson) y subjetivo (inseguridad).
+
+Implementa el flujo de "Quién genera qué" de la Sección 4.3 para un
+publicador asociado a una única comuna:
+
+1. Genera ``X_{c,k}(t) ~ Poisson(lambda_{c,k} * dt)`` por tipo de delito.
+2. Publica cada evento en el canal objetivo.
+3. Actualiza ``M_c`` (EMA) y calcula ``P_c(t)`` con el rumor ``\\hat P^gossip_c``
+   acumulado desde el paso anterior.
+4. Publica ``P_c(t)`` en el canal subjetivo del mismo tópico.
+"""
+
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, TypedDict, cast
+from typing import TypedDict, cast
 
-from civicmesh.comunas import normalizar_tópico
 from civicmesh.domains.config import PercepcionDelitosConfig
 from civicmesh.domains.mensajes import PercepcionPublicada
-from civicmesh.domains.percepcion import (
-    AgregadorRumores,
-    MemoriaEMA,
-    clip,
-    ruido_gaussiano,
-    sigmoide,
-)
+from civicmesh.domains.percepcion import MemoriaEMA, clip, ruido_gaussiano, sigmoide
+from civicmesh.domains.publisher_base import PublisherBase
 from civicmesh.domains.rng import poisson, rng_compuesto
 from civicmesh.metrics import EscribirMetricas
 from civicmesh.protocol import JsonValue, PeerId
@@ -22,6 +28,8 @@ DOMINIO = "delitos"
 
 
 class EventoDelito(TypedDict):
+    """Evento discreto ``(comuna, tipo, count, t)`` del canal objetivo."""
+
     comuna: str
     tipo: str
     count: int
@@ -30,6 +38,8 @@ class EventoDelito(TypedDict):
 
 @dataclass
 class PasoDelitos:
+    """Resultado íntegro de un paso, útil para tests, métricas y el informe."""
+
     t: float
     r_c: int
     m_c: float
@@ -39,7 +49,9 @@ class PasoDelitos:
     eventos: list[EventoDelito] = field(default_factory=list)
 
 
-class DomainAPublisher:
+class DomainAPublisher(PublisherBase):
+    """Publicador de Dominio A para una comuna: genera y publica ambos canales."""
+
     def __init__(
         self,
         comuna: str,
@@ -55,50 +67,29 @@ class DomainAPublisher:
     ) -> None:
         if not tasas:
             raise ValueError("tasas no puede estar vacio")
-        if dt <= 0:
-            raise ValueError("dt debe ser positivo")
-        if intervalo_segundos <= 0:
-            raise ValueError("intervalo_segundos debe ser positivo")
 
-        self._comuna = normalizar_tópico(comuna)
+        super().__init__(
+            comuna=comuna,
+            pubsub=pubsub,
+            peer_id=peer_id,
+            resumen_rumores=percepcion["resumen_rumores"],
+            dt=dt,
+            intervalo_segundos=intervalo_segundos,
+            clock=clock,
+        )
+
         self._tasas = dict(tasas)
         self._percepcion_cfg = percepcion
-        self._pubsub = pubsub
-        self._peer_id = peer_id
-        self._dt = dt
-        self._intervalo = intervalo_segundos
-        self._clock = clock
         self._metricas = metricas
-
         self._rng_por_tipo = {
             tipo: rng_compuesto(seed, self._comuna, tipo) for tipo in self._tasas
         }
         self._rng_ruido = rng_compuesto(seed, self._comuna, "eps")
         self._memoria = MemoriaEMA(percepcion["alpha"])
-        self._rumores = AgregadorRumores(percepcion["resumen_rumores"])
-
-        self._t = 0.0
-        self._next_send = 0.0
         self.historial: list[PasoDelitos] = []
 
-        pubsub.agregar_callback(self._on_mensaje)
-
-    def _on_mensaje(self, mensaje: dict[str, Any]) -> None:
-        if mensaje.get("channel") != "subjetivo":
-            return
-        if normalizar_tópico(str(mensaje.get("topic", ""))) != self._comuna:
-            return
-        if mensaje.get("origin") == self._peer_id:
-            return
-
-        contenido = mensaje.get("content")
-        if not isinstance(contenido, dict):
-            return
-        valor = contenido.get("value")
-        if isinstance(valor, (int, float)) and not isinstance(valor, bool):
-            self._rumores.agregar(float(valor))
-
     def step(self, t: float) -> PasoDelitos:
+        """Ejecuta un paso completo (Sección 4.3) y devuelve sus valores."""
         eventos: list[EventoDelito] = []
         total = 0
         for tipo, lam in self._tasas.items():
@@ -147,10 +138,3 @@ class DomainAPublisher:
         )
         self.historial.append(paso)
         return paso
-
-    def tick(self, now: float) -> None:
-        if now < self._next_send:
-            return
-        self._next_send = now + self._intervalo
-        self.step(self._t)
-        self._t += self._dt

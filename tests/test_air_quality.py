@@ -155,6 +155,16 @@ class ProveedorAireTests(unittest.TestCase):
         with self.assertRaises(ExtrapolacionError):
             ProveedorAire(self.series, "metodo-inventado")
 
+    def test_comuna_inexistente_falla_con_extrapolacion_error_no_coordenadas_error(
+        self,
+    ) -> None:
+        # comuna fuera del grafo (typo, etc): coordenadas_de() lanza CoordenadasError,
+        # que _extrapolar_o_none debe atrapar igual que ExtrapolacionError, para que
+        # el llamador solo tenga que manejar un tipo de error.
+        proveedor = ProveedorAire(self.series, "idw")
+        with self.assertRaises(ExtrapolacionError):
+            proveedor.muestra("comuna-inventada", 0)
+
 
 class ReplayAireTests(unittest.TestCase):
     def test_replay_avanza_indice_y_repite_si_loop(self) -> None:

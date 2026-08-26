@@ -5,6 +5,7 @@ import signal
 from pathlib import Path
 from typing import Literal, cast
 
+from civicmesh.comunas import normalizar_tópico
 from civicmesh.domains.air_quality_cache import cargar_series_directorio
 from civicmesh.domains.config import GeneradoresConfigError, load_generadores_config
 from civicmesh.domains.domain_a import DomainAPublisher
@@ -109,10 +110,10 @@ def build_publisher_node(
         network_config.advertise,
         metrics_dir or Path(".") / run_id / "metrics",
     )
-
+    comuna_normalizada = normalizar_tópico(comuna)
     domain_component: DomainAPublisher | DomainBPublisher
     if dominio == "delitos":
-        tasas_comuna = generadores["delitos"]["tasas"].get(comuna)
+        tasas_comuna = generadores["delitos"]["tasas"].get(comuna_normalizada)
         if tasas_comuna is None:
             raise PublisherSetupError(
                 f"no hay tasas configuradas para la comuna {comuna}"
@@ -129,6 +130,10 @@ def build_publisher_node(
             metricas=metricas,
         )
     else:
+        if comuna_normalizada not in generadores["aire"]["comunas"]:
+            raise PublisherSetupError(
+                f"la comuna {comuna} no esta en aire.comunas de generadores"
+            )
         series = cargar_series_directorio(air_cache_dir)
         extrapolacion = generadores["aire"]["extrapolacion"]
         proveedor = ProveedorAire(
