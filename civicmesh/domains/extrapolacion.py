@@ -3,7 +3,11 @@ from typing import Literal, TypedDict
 
 from civicmesh.comunas import COMUNAS_ADYACENTES, normalizar_tópico
 from civicmesh.domains.air_quality_cache import SerieAire, SerieAireError
-from civicmesh.domains.coords import coordenadas_de, distancia_haversine_km
+from civicmesh.domains.coords import (
+    CoordenadasError,
+    coordenadas_de,
+    distancia_haversine_km,
+)
 
 MetodoExtrapolacion = Literal["vecino_mas_cercano", "promedio_vecinos", "idw"]
 
@@ -160,7 +164,7 @@ class ProveedorAire:
     ) -> float | None:
         try:
             return funcion(comuna, indice, self._series, variable=variable, **kwargs)
-        except ExtrapolacionError:
+        except (ExtrapolacionError, CoordenadasError):
             return None
 
     def _tiempo_referencia(self, indice: int) -> str:
