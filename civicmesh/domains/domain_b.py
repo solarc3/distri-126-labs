@@ -42,10 +42,13 @@ class DomainBPublisher:
         pubsub: PubSub,
         peer_id: PeerId,
         seed: int,
+        dt: float = 1.0,
         intervalo_segundos: float = 1.0,
         clock: Callable[[], float] = time.monotonic,
         metricas: EscribirMetricas | None = None,
     ) -> None:
+        if dt <= 0:
+            raise ValueError("dt debe ser positivo")
         if intervalo_segundos <= 0:
             raise ValueError("intervalo_segundos debe ser positivo")
         if replay.comuna != normalizar_tópico(comuna):
@@ -56,6 +59,7 @@ class DomainBPublisher:
         self._percepcion_cfg = percepcion
         self._pubsub = pubsub
         self._peer_id = peer_id
+        self._dt = dt
         self._intervalo = intervalo_segundos
         self._clock = clock
         self._metricas = metricas
@@ -139,4 +143,4 @@ class DomainBPublisher:
             return
         self._next_send = now + self._intervalo
         self.step(self._t)
-        self._t += 1.0
+        self._t += self._dt
