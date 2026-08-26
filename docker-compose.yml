@@ -1,36 +1,42 @@
-version: '3.8'
+x-peer-base: &peer-base
+  build: .
+  environment:
+    LOG_LEVEL: INFO
+  volumes:
+    - ./config.compose.yaml:/app/config.yaml:ro
+    - shared_fs:/shared
 
 services:
-  # === BASE PEER ===
-  peer-base: &peer-base
-    build: .
-    environment:
-      - LOG_LEVEL=INFO
-    volumes:
-      - ./config.example.yaml:/app/config.yaml:ro
-      - shared_fs:/shared
-
   # === RED GOSSIP / PUBSUB ===
   peer-1:
     <<: *peer-base
     profiles: ["delitos", "aire"]
-    command: ["--config", "/app/config.yaml", "--port", "5001"]
+    command: ["--config", "/app/config.yaml", "--peer", "peer-1"]
 
   peer-2:
     <<: *peer-base
     profiles: ["delitos", "aire"]
-    command: ["--config", "/app/config.yaml", "--port", "5002", "--seeds", "peer-1:5001"]
+    command: ["--config", "/app/config.yaml", "--peer", "peer-2"]
 
   peer-3:
     <<: *peer-base
     profiles: ["delitos", "aire"]
-    command: ["--config", "/app/config.yaml", "--port", "5003", "--seeds", "peer-1:5001,peer-2:5002"]
+    command: ["--config", "/app/config.yaml", "--peer", "peer-3"]
 
   # === DOMINIO A (Delitos) ===
   publisher-delitos:
     <<: *peer-base
     profiles: ["delitos"]
-    command: ["--config", "/app/config.yaml", "--role", "publisher", "--domain", "delitos", "--seeds", "peer-1:5001"]
+    entrypoint: ["python", "-m", "civicmesh.domains.publisher_main"]
+    command:
+      - "--config"
+      - "/app/config.yaml"
+      - "--peer"
+      - "publisher-delitos"
+      - "--dominio"
+      - "delitos"
+      - "--comuna"
+      - "santiago"
     depends_on:
       - peer-1
 
@@ -38,7 +44,16 @@ services:
   publisher-aire:
     <<: *peer-base
     profiles: ["aire"]
-    command: ["--config", "/app/config.yaml", "--role", "publisher", "--domain", "aire", "--seeds", "peer-1:5001"]
+    entrypoint: ["python", "-m", "civicmesh.domains.publisher_main"]
+    command:
+      - "--config"
+      - "/app/config.yaml"
+      - "--peer"
+      - "publisher-aire"
+      - "--dominio"
+      - "aire"
+      - "--comuna"
+      - "las_condes"
     depends_on:
       - peer-1
 
@@ -46,7 +61,8 @@ services:
   frontend:
     <<: *peer-base
     profiles: ["delitos", "aire"]
-    command: ["--role", "frontend"] # Cambiar cuando el rol analítica implemente su entrypoint
+    entrypoint: ["python", "scripts/frontend.py"]
+    command: ["--metrics", "/shared", "--host", "0.0.0.0", "--port", "8080"]
     ports:
       - "8080:8080"
     volumes:

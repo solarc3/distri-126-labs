@@ -18,3 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - README actualizado con las instrucciones base para Laboratorio 3 y roles asignados.
+
+### Fixed
+- **[Infraestructura]** Compose usa los CLI reales de peers, publicadores y frontend, con endpoints DNS internos dedicados.
+- **[CI/CD]** La integración falla si un servicio termina y exige frontend HTTP disponible y descubrimiento completo entre peers en ambos dominios.

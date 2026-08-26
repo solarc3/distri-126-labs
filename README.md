@@ -137,6 +137,16 @@ make compose-aire
 O directamente con Docker Compose:
 `docker compose --profile delitos up --build`
 
+El compose usa `config.compose.yaml`, cuyos `advertise` son los nombres DNS de
+los servicios dentro de la red Docker. Para ejecutar la misma verificación que
+CI (procesos arriba, frontend HTTP disponible y descubrimiento de los cuatro
+peers), usar:
+
+```bash
+make compose-check-delitos
+make compose-check-aire
+```
+
 ## Ejecución en Clúster DIINF (Slurm)
 Los logs de corrida y métricas se guardarán bajo la convención `$CIVICMESH_RUNS/<run_id>/`.
 ```bash

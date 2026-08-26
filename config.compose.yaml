@@ -1,0 +1,46 @@
+network:
+  peers:
+    peer-1:
+      bind: "0.0.0.0:7000"
+      advertise: "peer-1:7000"
+      seeds:
+        - "peer-2:7000"
+    peer-2:
+      bind: "0.0.0.0:7000"
+      advertise: "peer-2:7000"
+      seeds:
+        - "peer-1:7000"
+    peer-3:
+      bind: "0.0.0.0:7000"
+      advertise: "peer-3:7000"
+      seeds:
+        - "peer-1:7000"
+    publisher-delitos:
+      bind: "0.0.0.0:7000"
+      advertise: "publisher-delitos:7000"
+      seeds:
+        - "peer-1:7000"
+    publisher-aire:
+      bind: "0.0.0.0:7000"
+      advertise: "publisher-aire:7000"
+      seeds:
+        - "peer-1:7000"
+
+gossip:
+  fanout: 1
+  interval_seconds: 1.0
+  suspect_after_seconds: 10.0
+  dead_after_seconds: 20.0
+  random_seed: 126
+
+pubsub:
+  channels:
+    objetivo:
+      ttl: 5
+      priority: 2
+    subjetivo:
+      ttl: 3
+      priority: 1
+
+node:
+  loop_interval_seconds: 0.05
