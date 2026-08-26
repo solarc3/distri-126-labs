@@ -6,7 +6,6 @@ convergencia entre peers. Cada registro es una línea JSON en ``metrics/``.
 """
 
 import json
-import math
 import statistics
 import time
 from collections.abc import Iterable, Iterator
@@ -68,6 +67,18 @@ def saludar_peer_id(peer_id: str) -> str:
     return peer_id.replace(":", "_").replace(".", "_").replace("/", "_")
 
 
+def _nombre_tipo(tipo: type | tuple[type, ...]) -> str:
+    if isinstance(tipo, tuple):
+        return " o ".join(t.__name__ for t in tipo)
+    return tipo.__name__
+
+
+def _es_numerico(tipo: type | tuple[type, ...]) -> bool:
+    return tipo is int or tipo is float or bool(
+        isinstance(tipo, tuple) and (int in tipo or float in tipo)
+    )
+
+
 def _exigir(
     registro: dict[object, object],
     campo: str,
@@ -76,8 +87,10 @@ def _exigir(
     valor = registro.get(campo)
     if valor is None and campo in registro:
         raise MetricaError(f"el campo {campo} no puede ser nulo")
+    if isinstance(valor, bool) and _es_numerico(tipo):
+        raise MetricaError(f"el campo {campo} no puede ser un booleano")
     if not isinstance(valor, tipo):
-        raise MetricaError(f"el campo {campo} debe ser {tipo.__name__}")
+        raise MetricaError(f"el campo {campo} debe ser {_nombre_tipo(tipo)}")
     return valor
 
 
@@ -141,7 +154,9 @@ class EscribirMetricas:
     def registrar(self, metrica: Metrica, ts: float | None = None) -> None:
         """Vuelca una métrica ya construida; permite fijar el instante."""
         registro: dict[str, object] = dict(metrica)
-        if ts is not None:
+        if ts is None:
+            registro.pop("ts", None)
+        else:
             registro["ts"] = ts
         self._escribir(registro)
 
@@ -157,7 +172,6 @@ class EscribirMetricas:
             {
                 "kind": "topic",
                 "run_id": self.run_id,
-                "ts": 0.0,
                 "peer": self.peer,
                 "domain": domain,
                 "topic": topic,
@@ -179,7 +193,6 @@ class EscribirMetricas:
             {
                 "kind": "state",
                 "run_id": self.run_id,
-                "ts": 0.0,
                 "peer": self.peer,
                 "vivos": vivos,
                 "sospechosos": sospechosos,
@@ -200,7 +213,6 @@ class EscribirMetricas:
             {
                 "kind": "network",
                 "run_id": self.run_id,
-                "ts": 0.0,
                 "peer": self.peer,
                 "enviados": enviados,
                 "reenviados": reenviados,
@@ -301,6 +313,16 @@ class ResumenConvergencia:
     dispersion_final: float
 
 
+def _redondear_ventana(ts: float, bucket: float) -> float:
+    """Asigna ``ts`` a la ventana de ``bucket`` segundos sin error de punto flotante.
+
+    ``floor(ts / bucket) * bucket`` es sensible a representaciones como
+    0.3 / 0.1 == 2.9999999999999996, lo que desplazaria la muestra al bucket
+    vecino. Se redondea el cociente a la ventana mas cercana de forma exacta.
+    """
+    return round(ts / bucket, 10) * bucket
+
+
 def convergencia(
     metricas: Iterable[Metrica],
     topic: str,
@@ -326,7 +348,7 @@ def convergencia(
             continue
         if peer is not None and m["peer"] != peer:
             continue
-        ventana = math.floor(m["ts"] / bucket) * bucket
+        ventana = _redondear_ventana(m["ts"], bucket)
         por_bucket.setdefault(ventana, []).append(m["value"])
 
     serie: list[tuple[float, float, float, int]] = []
