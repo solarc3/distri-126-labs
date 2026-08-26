@@ -19,8 +19,11 @@ from civicmesh.domains.percepcion import MemoriaEMA, clip, ruido_gaussiano
 from civicmesh.domains.publisher_base import PublisherBase
 from civicmesh.domains.replay import ReplayAire
 from civicmesh.domains.rng import rng_compuesto
+from civicmesh.metrics import EscribirMetricas
 from civicmesh.protocol import JsonValue, PeerId
 from civicmesh.pubsub import PubSub
+
+DOMINIO = "aire"
 
 
 @dataclass
@@ -50,6 +53,7 @@ class DomainBPublisher(PublisherBase):
         dt: float = 1.0,
         intervalo_segundos: float = 1.0,
         clock: Callable[[], float] = time.monotonic,
+        metricas: EscribirMetricas | None = None,
     ) -> None:
         if replay.comuna != normalizar_tópico(comuna):
             raise ValueError("el replay entregado pertenece a otra comuna")
@@ -66,6 +70,7 @@ class DomainBPublisher(PublisherBase):
 
         self._replay = replay
         self._percepcion_cfg = percepcion
+        self._metricas = metricas
         self._rng_ruido = rng_compuesto(seed, "aire", self._comuna, "eps")
         self._memoria = MemoriaEMA(percepcion["alpha"])
         self.historial: list[PasoAire] = []
@@ -103,6 +108,10 @@ class DomainBPublisher(PublisherBase):
             cast(JsonValue, dict(subjetivo)),
             channel="subjetivo",
         )
+
+        if self._metricas is not None:
+            self._metricas.topic(DOMINIO, self._comuna, "objetivo", v_c)
+            self._metricas.topic(DOMINIO, self._comuna, "subjetivo", p_c)
 
         paso = PasoAire(
             t=t,

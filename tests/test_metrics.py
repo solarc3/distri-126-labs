@@ -38,6 +38,15 @@ class EscribirMetricasTests(unittest.TestCase):
         self.assertEqual(saludar_peer_id("127.0.0.1:7001"), "127_0_0_1_7001")
         self.assertNotIn(":", saludar_peer_id("127.0.0.1:7001"))
 
+    def test_stamp_temporal_por_defecto_no_es_cero(self) -> None:
+        with tempfile.TemporaryDirectory() as directorio:
+            base = Path(directorio)
+            escritor = EscribirMetricas("run-1", "127.0.0.1:7001", base)
+            escritor.topic("aire", "santiago", "objetivo", 12.0)
+            metricas = list(leer_metricas(base))
+            self.assertEqual(len(metricas), 1)
+            self.assertGreater(metricas[0]["ts"], 0.0)
+
     def test_niega_valores_nulos(self) -> None:
         with tempfile.TemporaryDirectory() as directorio:
             archivo = Path(directorio) / "malo.jsonl"
@@ -79,6 +88,52 @@ class EscribirMetricasTests(unittest.TestCase):
             )
             with self.assertRaises(MetricaError):
                 list(leer_metricas(archivo))
+
+    def test_niega_valor_no_numerico_con_mensaje_tipo(self) -> None:
+        with tempfile.TemporaryDirectory() as directorio:
+            archivo = Path(directorio) / "malo.jsonl"
+            archivo.write_text(
+                json.dumps(
+                    {
+                        "kind": "topic",
+                        "run_id": "run-1",
+                        "ts": 1.0,
+                        "peer": "127.0.0.1:7001",
+                        "domain": "delitos",
+                        "topic": "santiago",
+                        "channel": "objetivo",
+                        "value": "no-numero",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(MetricaError) as contexto:
+                list(leer_metricas(archivo))
+            self.assertIn("debe ser", str(contexto.exception))
+
+    def test_niega_booleano_como_numerico(self) -> None:
+        with tempfile.TemporaryDirectory() as directorio:
+            archivo = Path(directorio) / "malo.jsonl"
+            archivo.write_text(
+                json.dumps(
+                    {
+                        "kind": "state",
+                        "run_id": "run-1",
+                        "ts": 1.0,
+                        "peer": "127.0.0.1:7001",
+                        "vivos": True,
+                        "sospechosos": 0,
+                        "muertos": 0,
+                        "total": 1,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            with self.assertRaises(MetricaError) as contexto:
+                list(leer_metricas(archivo))
+            self.assertIn("booleano", str(contexto.exception))
 
 
 class SerieTopicTests(unittest.TestCase):
@@ -175,6 +230,19 @@ class ConvergenciaTests(unittest.TestCase):
     def test_rechaza_eps_negativo(self) -> None:
         with self.assertRaises(ValueError):
             convergencia([], "santiago", "objetivo", eps=-1, bucket=1.0)
+
+    def test_bucketing_no_desplaza_por_error_de_punto_flotante(self) -> None:
+        with tempfile.TemporaryDirectory() as directorio:
+            base = Path(directorio)
+            escritor = EscribirMetricas("run-1", "127.0.0.1:7001", base)
+            escritor.topic("aire", "santiago", "objetivo", 10.0, ts=0.3)
+            escritor.topic("aire", "santiago", "objetivo", 11.0, ts=0.31)
+            metricas = list(leer_metricas(base))
+
+        resumen = convergencia(metricas, "santiago", "objetivo", eps=0.5, bucket=0.1)
+        cantidad = sum(cantidad for _w, _s, _d, cantidad in resumen.serie)
+        self.assertEqual(cantidad, 2)
+        self.assertTrue(resumen.convergido)
 
 
 class UltimoValorTests(unittest.TestCase):
