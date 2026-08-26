@@ -1,0 +1,76 @@
+seed: 126
+
+delitos:
+  tasas:
+    santiago: { robo: 0.55, hurto: 0.70, lesiones: 0.20 }
+    estacion_central: { robo: 0.45, hurto: 0.55, lesiones: 0.18 }
+    quinta_normal: { robo: 0.30, hurto: 0.35, lesiones: 0.12 }
+    independencia: { robo: 0.35, hurto: 0.40, lesiones: 0.14 }
+    recoleta: { robo: 0.38, hurto: 0.42, lesiones: 0.15 }
+    conchali: { robo: 0.28, hurto: 0.30, lesiones: 0.10 }
+    huechuraba: { robo: 0.22, hurto: 0.25, lesiones: 0.08 }
+    san_miguel: { robo: 0.30, hurto: 0.32, lesiones: 0.11 }
+    san_joaquin: { robo: 0.26, hurto: 0.28, lesiones: 0.10 }
+    pedro_aguirre_cerda: { robo: 0.27, hurto: 0.29, lesiones: 0.10 }
+    la_cisterna: { robo: 0.24, hurto: 0.26, lesiones: 0.09 }
+    san_ramon: { robo: 0.25, hurto: 0.27, lesiones: 0.09 }
+    macul: { robo: 0.24, hurto: 0.26, lesiones: 0.09 }
+    penalolen: { robo: 0.22, hurto: 0.24, lesiones: 0.08 }
+    la_florida: { robo: 0.26, hurto: 0.30, lesiones: 0.10 }
+    providencia: { robo: 0.20, hurto: 0.35, lesiones: 0.06 }
+    nunoa: { robo: 0.18, hurto: 0.28, lesiones: 0.06 }
+    la_reina: { robo: 0.12, hurto: 0.18, lesiones: 0.04 }
+    las_condes: { robo: 0.15, hurto: 0.30, lesiones: 0.05 }
+    vitacura: { robo: 0.08, hurto: 0.15, lesiones: 0.03 }
+    lo_barnechea: { robo: 0.07, hurto: 0.12, lesiones: 0.03 }
+    pudahuel: { robo: 0.20, hurto: 0.22, lesiones: 0.08 }
+    renca: { robo: 0.24, hurto: 0.26, lesiones: 0.09 }
+    maipu: { robo: 0.22, hurto: 0.26, lesiones: 0.09 }
+    cerrillos: { robo: 0.20, hurto: 0.22, lesiones: 0.07 }
+  percepcion:
+    alpha: 0.8
+    beta0: -1.0
+    beta1: 0.4
+    beta2: 0.8
+    sigma_eps: 0.1
+    resumen_rumores: promedio
+    usar_sigmoide: true
+
+aire:
+  comunas:
+    - santiago
+    - providencia
+    - las_condes
+    - vitacura
+    - nunoa
+    - recoleta
+    - independencia
+    - quinta_normal
+    - estacion_central
+    - san_miguel
+    - macul
+    - la_reina
+    - pedro_aguirre_cerda
+    - lo_barnechea
+    - huechuraba
+    - san_joaquin
+    - conchali
+    - pudahuel
+    - renca
+    - maipu
+    - cerrillos
+    - la_cisterna
+    - san_ramon
+    - penalolen
+    - la_florida
+  percepcion:
+    alpha: 0.85
+    gamma: 0.6
+    delta: 0.3
+    sigma_eps: 2.0
+    clip_min: 0.0
+    clip_max: 500.0
+    resumen_rumores: promedio
+  extrapolacion:
+    metodo: idw
+    potencia: 2.0
