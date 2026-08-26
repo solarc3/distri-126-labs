@@ -68,6 +68,7 @@ def build_publisher_node(
     air_cache_dir: Path,
     intervalo_segundos: float,
     loop_air: bool,
+    default_dt: float = 1.0,
     run_id: str = "local",
     metrics_dir: Path | None = None,
     t_suspect: float | None = None,
@@ -123,6 +124,7 @@ def build_publisher_node(
             pubsub=pubsub,
             peer_id=network_config.advertise,
             seed=generadores["seed"],
+            dt=default_dt,
             intervalo_segundos=intervalo_segundos,
             metricas=metricas,
         )
@@ -142,6 +144,7 @@ def build_publisher_node(
             pubsub=pubsub,
             peer_id=network_config.advertise,
             seed=generadores["seed"],
+            dt=default_dt,
             intervalo_segundos=intervalo_segundos,
             metricas=metricas,
         )
@@ -164,6 +167,7 @@ def main(args: list[str] | None = None) -> None:
     parser.add_argument("--comuna", required=True)
     parser.add_argument("--air-cache-dir", type=Path, default=DEFAULT_AIR_CACHE_DIR)
     parser.add_argument("--intervalo-segundos", type=float, default=1.0)
+    parser.add_argument("--dt", type=float, default=1.0)
     parser.add_argument("--run-id", default="local")
     parser.add_argument("--metrics-dir", type=Path, default=None)
     parser.add_argument(
@@ -187,6 +191,7 @@ def main(args: list[str] | None = None) -> None:
             parsed.air_cache_dir,
             parsed.intervalo_segundos,
             not parsed.no_loop_air,
+            default_dt=parsed.dt,
             run_id=parsed.run_id,
             metrics_dir=parsed.metrics_dir,
         )
