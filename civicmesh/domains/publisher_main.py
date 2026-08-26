@@ -14,8 +14,9 @@ from civicmesh.domains.extrapolacion import ProveedorAire
 from civicmesh.domains.replay import ReplayAire
 from civicmesh.membership.gossip import Gossip
 from civicmesh.membership.view import MembershipView
+from civicmesh.metrics import EscribirMetricas
 from civicmesh.node import ConfigError, Node, load_config
-from civicmesh.pubsub import PubSub
+from civicmesh.pubsub import PoliticasCanales, PubSub
 from civicmesh.transport import Transport
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,34 @@ class PublisherSetupError(ValueError):
     """indica que no fue posible armar el publicador con la configuracion dada"""
 
 
+class EstadoProceso:
+    """Vuelca el estado de la vista de membresia como metrica periodicamente."""
+
+    def __init__(
+        self,
+        vista: MembershipView,
+        metricas: EscribirMetricas,
+        intervalo_segundos: float,
+    ) -> None:
+        self._vista = vista
+        self._metricas = metricas
+        self._intervalo = intervalo_segundos
+        self._next_send = 0.0
+
+    def tick(self, now: float) -> None:
+        if now < self._next_send:
+            return
+        self._next_send = now + self._intervalo
+        suspect = sum(1 for _pid, e in self._vista.items() if e["estado"] == "suspect")
+        muertos = sum(1 for _pid, e in self._vista.items() if e["estado"] == "dead")
+        self._metricas.estado(
+            len(self._vista.vivos()),
+            suspect,
+            muertos,
+            len(self._vista),
+        )
+
+
 def build_publisher_node(
     config_path: Path,
     peer_name: str,
@@ -40,6 +69,13 @@ def build_publisher_node(
     air_cache_dir: Path,
     intervalo_segundos: float,
     loop_air: bool,
+    default_dt: float = 1.0,
+    run_id: str = "local",
+    metrics_dir: Path | None = None,
+    t_suspect: float | None = None,
+    t_dead: float | None = None,
+    gossip_fanout: int | None = None,
+    politicas: PoliticasCanales | None = None,
 ) -> Node:
     network_config = load_config(config_path, peer_name)
     generadores = load_generadores_config(generadores_path)
@@ -48,22 +84,32 @@ def build_publisher_node(
     vista = MembershipView(
         network_config.advertise,
         network_config.seeds,
-        t_suspect=network_config.t_suspect,
-        t_dead=network_config.t_dead,
+        t_suspect=network_config.t_suspect if t_suspect is None else t_suspect,
+        t_dead=network_config.t_dead if t_dead is None else t_dead,
     )
     rng = random.Random(network_config.random_seed)
     gossip = Gossip(
         vista,
         transport,
         rng,
-        fanout=network_config.gossip_fanout,
+        fanout=network_config.gossip_fanout if gossip_fanout is None else gossip_fanout,
         interval=network_config.gossip_interval,
     )
-    pubsub = PubSub(vista, transport, network_config.pubsub_policies, rng=rng)
+    pubsub = PubSub(
+        vista,
+        transport,
+        network_config.pubsub_policies if politicas is None else politicas,
+        rng=rng,
+    )
     transport.register_handler("gossip", gossip.handle)
     transport.register_handler("pubsub", pubsub.handle)
     pubsub.subscribe(comuna)
 
+    metricas = EscribirMetricas(
+        run_id,
+        network_config.advertise,
+        metrics_dir or Path(".") / run_id / "metrics",
+    )
     comuna_normalizada = normalizar_tópico(comuna)
     domain_component: DomainAPublisher | DomainBPublisher
     if dominio == "delitos":
@@ -79,7 +125,9 @@ def build_publisher_node(
             pubsub=pubsub,
             peer_id=network_config.advertise,
             seed=generadores["seed"],
+            dt=default_dt,
             intervalo_segundos=intervalo_segundos,
+            metricas=metricas,
         )
     else:
         if comuna_normalizada not in generadores["aire"]["comunas"]:
@@ -101,12 +149,14 @@ def build_publisher_node(
             pubsub=pubsub,
             peer_id=network_config.advertise,
             seed=generadores["seed"],
+            dt=default_dt,
             intervalo_segundos=intervalo_segundos,
+            metricas=metricas,
         )
 
     return Node(
         transport,
-        [gossip, pubsub, domain_component],
+        [gossip, pubsub, domain_component, EstadoProceso(vista, metricas, 1.0)],
         loop_interval=network_config.loop_interval,
     )
 
@@ -122,6 +172,9 @@ def main(args: list[str] | None = None) -> None:
     parser.add_argument("--comuna", required=True)
     parser.add_argument("--air-cache-dir", type=Path, default=DEFAULT_AIR_CACHE_DIR)
     parser.add_argument("--intervalo-segundos", type=float, default=1.0)
+    parser.add_argument("--dt", type=float, default=1.0)
+    parser.add_argument("--run-id", default="local")
+    parser.add_argument("--metrics-dir", type=Path, default=None)
     parser.add_argument(
         "--no-loop-air",
         action="store_true",
@@ -143,6 +196,9 @@ def main(args: list[str] | None = None) -> None:
             parsed.air_cache_dir,
             parsed.intervalo_segundos,
             not parsed.no_loop_air,
+            default_dt=parsed.dt,
+            run_id=parsed.run_id,
+            metrics_dir=parsed.metrics_dir,
         )
     except (
         ConfigError,

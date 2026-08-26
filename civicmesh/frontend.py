@@ -64,7 +64,7 @@ def construir_resumen(
 
     for topic in sorted(topics_medidos(lista)):
         entrada: dict[str, object] = {}
-        for canal in sorted(canales_medidos(lista, topic), reverse=True):
+        for canal in ("subjetivo", "objetivo"):
             serie = serie_topic(lista, topic, canal)
             resumen_canal = convergencia(lista, topic, canal, eps, bucket)
             entrada[canal] = {

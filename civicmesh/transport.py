@@ -164,6 +164,14 @@ class Transport:
                 data, addr = self._sock.recvfrom(65535)
             except TimeoutError:
                 continue
+            except ConnectionResetError as error:
+                if self._stop_event.is_set():
+                    return
+                if getattr(error, "winerror", None) == 10054:
+                    logger.debug("ICMP port-unreachable transitorio, se continua")
+                    continue
+                logger.exception("fallo la recepcion UDP")
+                return
             except OSError:
                 if self._stop_event.is_set():
                     return

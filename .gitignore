@@ -2,3 +2,8 @@
 __pycache__/
 *.pyc
 *.egg-info/
+demo*/
+run-*/
+local/
+graficos/
+lab3_12026.pdf
